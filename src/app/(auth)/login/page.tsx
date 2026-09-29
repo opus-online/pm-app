@@ -7,6 +7,9 @@ import { LoginForm } from "./login-form";
 import { AzureButton } from "./azure-button";
 import { Separator } from "@/components/ui/separator";
 
+// Hidden until Entra ID is configured; flip to true to bring the button back.
+const SHOW_MICROSOFT_SIGN_IN = false;
+
 export default async function LoginPage({
   searchParams,
 }: {
@@ -32,12 +35,16 @@ export default async function LoginPage({
             <AlertDescription>Microsoft sign-in failed. Try again.</AlertDescription>
           </Alert>
         )}
-        <AzureButton />
-        <div className="flex items-center gap-2">
-          <Separator className="flex-1" />
-          <span className="text-xs text-muted-foreground">or</span>
-          <Separator className="flex-1" />
-        </div>
+        {SHOW_MICROSOFT_SIGN_IN && (
+          <>
+            <AzureButton />
+            <div className="flex items-center gap-2">
+              <Separator className="flex-1" />
+              <span className="text-xs text-muted-foreground">or</span>
+              <Separator className="flex-1" />
+            </div>
+          </>
+        )}
         <LoginForm />
         <p className="text-center text-sm text-muted-foreground">
           No account?{" "}
