@@ -11,6 +11,8 @@ middleware that validates the session and gates routes based on user status
 actions. Sessions are **time-boxed to 24 hours** (`[auth.sessions] timebox =
 "24h"` in `supabase/config.toml`) with refresh-token rotation on.
 
+> Setting up production on your own accounts? See [docs/DEPLOY.md](docs/DEPLOY.md).
+
 ## Prerequisites
 
 - Node.js 22+
