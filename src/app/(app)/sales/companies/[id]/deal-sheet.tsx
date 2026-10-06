@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowUpRight, Building2, ExternalLink, MoreHorizontal, PartyPopper, PlusIcon } from "lucide-react";
@@ -565,7 +565,14 @@ function FollowUpInput({
     setDraft(value ?? "");
   }
 
+  // Typing a date fires onChange per segment ("…-01" then "…-15"); wait for a pause,
+  // blur or Enter so each change is saved (and logged) once.
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
   function commit(v: string) {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
     if (v && !/^(19|20)\d{2}-\d{2}-\d{2}$/.test(v)) return;
     if (v === (value ?? "")) return;
     onCommit(v || null);
@@ -578,8 +585,14 @@ function FollowUpInput({
       className="h-7 bg-background text-[0.8rem]"
       value={draft}
       onChange={(e) => {
-        setDraft(e.target.value);
-        commit(e.target.value);
+        const v = e.target.value;
+        setDraft(v);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => commit(v), 800);
+      }}
+      onBlur={() => commit(draft)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit(draft);
       }}
     />
   );

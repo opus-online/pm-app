@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(37);
+select plan(42);
 
 -- fixtures: admin, sales (sal), second sales user (sal2), pm (no sales)
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, encrypted_password, created_at, updated_at) values
@@ -112,6 +112,23 @@ set local "request.jwt.claims" to '{"sub":"ac000000-0000-4000-8000-000000000004"
 select is((select name from public.sales_people() where id='ac000000-0000-4000-8000-000000000002'), 'Sal', 'sales user resolves another owner''s name');
 select ok(not exists(select 1 from public.sales_people() where id='ac000000-0000-4000-8000-000000000003'), 'a non-sales PM is not in the sales directory');
 reset role;
+
+-- follow-up changes write system entries
+set local "request.jwt.claims" to '{"sub":"ac000000-0000-4000-8000-000000000002","role":"authenticated"}';
+update public.deals set next_follow_up_on = null where id='ac200000-0000-4000-8000-000000000001';
+update public.deals set next_follow_up_on = '2026-10-14' where id='ac200000-0000-4000-8000-000000000001';
+select ok(exists(select 1 from public.crm_activities where deal_id='ac200000-0000-4000-8000-000000000001'
+  and kind='system' and body='Follow-up set: 14 Oct' and actor_id='ac000000-0000-4000-8000-000000000002'),
+  'setting a follow-up logs "Follow-up set" with the actor');
+update public.deals set next_follow_up_on = '2026-10-21' where id='ac200000-0000-4000-8000-000000000001';
+select ok(exists(select 1 from public.crm_activities where deal_id='ac200000-0000-4000-8000-000000000001'
+  and kind='system' and body='Follow-up moved: 14 Oct → 21 Oct'), 'moving a follow-up logs both dates');
+update public.deals set next_follow_up_on = null where id='ac200000-0000-4000-8000-000000000001';
+select ok(exists(select 1 from public.crm_activities where deal_id='ac200000-0000-4000-8000-000000000001'
+  and kind='system' and body='Follow-up cleared'), 'clearing a follow-up is logged');
+select lives_ok($$ update public.deals set title = title where id='ac200000-0000-4000-8000-000000000001' $$, 'an update that leaves the follow-up unchanged succeeds');
+select is((select count(*)::int from public.crm_activities where deal_id='ac200000-0000-4000-8000-000000000001' and body like 'Follow-up%'),
+  3, 'exactly three follow-up entries (no entry for unchanged follow-up)');
 
 select * from finish();
 rollback;
