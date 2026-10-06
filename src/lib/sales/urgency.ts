@@ -1,13 +1,16 @@
-const DAY = 86_400_000;
-function utcMidnight(d: Date) {
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-}
+import { appDayKey } from "@/lib/time-zone";
 
-/** Whole UTC calendar days between `today` and `dateISO` (negative = overdue, 0 = today). */
+const DAY = 86_400_000;
+const utcDay = (key: string) => {
+  const [y, m, d] = key.slice(0, 10).split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+};
+
+/** Whole calendar days from today (on the app's Tallinn clock) to `dateISO`; negative = overdue,
+ * 0 = today. Both are date-only keys, so the subtraction is plain UTC calendar math. */
 export function followUpDays(dateISO: string | null, today: Date = new Date()): number | null {
   if (!dateISO) return null;
-  const [y, m, d] = dateISO.slice(0, 10).split("-").map(Number);
-  return Math.round((Date.UTC(y, m - 1, d) - utcMidnight(today)) / DAY);
+  return Math.round((utcDay(dateISO) - utcDay(appDayKey(today))) / DAY);
 }
 
 /** Sort comparator: earliest follow-up first (overdue included), undated rows last. */

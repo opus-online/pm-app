@@ -1,4 +1,5 @@
 import { DEAL_STAGES, OPEN_STAGES, type DealLite, type DealStage, type OfferLite } from "./types";
+import { appDayKey } from "@/lib/time-zone";
 import { followUpDays } from "./urgency";
 
 const offerTime = (o: OfferLite) => o.sent_on ?? o.created_at.slice(0, 10);
@@ -19,7 +20,8 @@ const value = (d: DealLite) => latestOffer(d.offers)?.amount ?? 0;
 
 export function pipelineTotals(deals: DealLite[], today: Date = new Date()) {
   const open = deals.filter((d) => OPEN_STAGES.includes(d.stage));
-  const monthKey = today.toISOString().slice(0, 7);
+  // Months split at Tallinn midnight, like every other day boundary in the app.
+  const monthKey = appDayKey(today).slice(0, 7);
   return {
     openCount: open.length,
     pipelineValue: open.reduce((s, d) => s + value(d), 0),
@@ -28,7 +30,7 @@ export function pipelineTotals(deals: DealLite[], today: Date = new Date()) {
       return n !== null && n <= 0;
     }).length,
     wonThisMonthValue: deals
-      .filter((d) => d.stage === "won" && d.won_at?.slice(0, 7) === monthKey)
+      .filter((d) => d.stage === "won" && d.won_at !== null && appDayKey(d.won_at).slice(0, 7) === monthKey)
       .reduce((s, d) => s + value(d), 0),
   };
 }

@@ -10,13 +10,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { appClockTime, appDayKey } from "@/lib/time-zone";
+import { appClockTime, appDayKey, shiftDayKey } from "@/lib/time-zone";
 import { cn } from "@/lib/utils";
 import { formatShortDate } from "../../../people/types";
 import type { ActivityView } from "../../types";
 import { KIND_META } from "./activity-kind";
-
-const DAY_MS = 86_400_000;
 
 function dayLabel(key: string, todayKey: string, yesterdayKey: string) {
   if (key === todayKey) return "Today";
@@ -44,7 +42,7 @@ export function ActivityTimeline({
   const [now] = useState(() => Date.now());
   // Days split at Estonian midnight on server and client alike (no post-hydration jump).
   const todayKey = appDayKey(now);
-  const yesterdayKey = appDayKey(now - DAY_MS);
+  const yesterdayKey = shiftDayKey(todayKey, -1);
 
   const groups: { key: string; items: ActivityView[] }[] = [];
   for (const a of activities) {

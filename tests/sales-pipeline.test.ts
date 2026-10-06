@@ -30,6 +30,16 @@ describe("pipelineTotals", () => {
   it("counts only open deals for pipeline and due", () =>
     expect(pipelineTotals(deals, today)).toEqual({ openCount: 2, pipelineValue: 1500, dueCount: 2, wonThisMonthValue: 4000 }));
 });
+describe("pipelineTotals month", () => {
+  it("takes the month from the Tallinn clock for both today and won_at", () => {
+    const won = (won_at: string): DealLite => ({ id: won_at, stage: "won", next_follow_up_on: null, won_at, offers: [o(100, null)] });
+    // 22:30Z on Sep 30 is already Oct 1 in Tallinn.
+    const rows = [won("2026-09-30T22:30:00Z"), won("2026-09-30T20:00:00Z")];
+    expect(pipelineTotals(rows, new Date("2026-10-01T09:00:00Z")).wonThisMonthValue).toBe(100);
+    expect(pipelineTotals(rows, new Date("2026-09-30T22:30:00Z")).wonThisMonthValue).toBe(100);
+    expect(pipelineTotals(rows, new Date("2026-09-30T20:30:00Z")).wonThisMonthValue).toBe(100);
+  });
+});
 describe("stageTotals", () => {
   it("sums latest offer per stage", () => {
     const t = stageTotals(deals);

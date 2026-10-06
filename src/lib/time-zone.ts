@@ -28,3 +28,10 @@ export function appDayKey(instant: string | number | Date): string {
 export function appClockTime(instant: string | number | Date): string {
   return CLOCK.format(new Date(instant));
 }
+
+/** The "YYYY-MM-DD" key `days` calendar days from `key` -- calendar arithmetic, so a 23 h or
+ * 25 h DST day can't skip or repeat a date the way "now - 24 h" does. */
+export function shiftDayKey(key: string, days: number): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
