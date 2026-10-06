@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/require-permission";
 import { writeAudit } from "@/lib/audit";
 import { normalizeRegCode } from "@/lib/sales/reg-code";
+import { pickProvided } from "@/lib/sales/pick-provided";
 import {
   activitySchema,
   companySchema,
@@ -103,10 +104,15 @@ export async function updateDealAction(dealId: string, input: DealUpdateInput): 
   const parsed = dealUpdateSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid deal." };
 
+  // Only write the keys the caller actually sent -- dealUpdateSchema's text()/isoDate() helpers
+  // turn an absent next_follow_up_on/lost_reason into an explicit null, which would otherwise
+  // wipe those columns on every partial update (e.g. a stage-only drag-and-drop payload).
+  const payload = pickProvided(parsed.data, input as Record<string, unknown>);
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("deals")
-    .update(parsed.data)
+    .update(payload)
     .eq("id", dealId)
     .select("client_id")
     .single();
@@ -134,8 +140,9 @@ export async function deleteDealAction(dealId: string): Promise<Result> {
   const supabase = await createClient();
   const { data: deal } = await supabase.from("deals").select("client_id").eq("id", dealId).single();
 
-  const { error } = await supabase.from("deals").delete().eq("id", dealId);
+  const { data: deleted, error } = await supabase.from("deals").delete().eq("id", dealId).select("id");
   if (error) return { error: "Delete failed. Try again." };
+  if (!deleted || deleted.length === 0) return { error: "Delete failed." };
 
   await writeAudit({
     action: "deal.deleted",
@@ -162,8 +169,11 @@ export async function saveOfferAction(
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid offer." };
 
   const supabase = await createClient();
+  // Scope the update to this deal too, not just the offer id -- otherwise an offerId for a
+  // different deal (e.g. stale client state) could be silently rewritten under this one.
+  // .single() already turns a 0-row match into an error, so no separate not-found check needed.
   const write = offerId
-    ? supabase.from("offers").update(parsed.data).eq("id", offerId)
+    ? supabase.from("offers").update(parsed.data).eq("id", offerId).eq("deal_id", dealId)
     : supabase.from("offers").insert({ ...parsed.data, deal_id: dealId });
   const { data, error } = await write.select("id, deal_id").single();
   if (error || !data) return { error: "Save failed. Try again." };
@@ -189,8 +199,9 @@ export async function deleteOfferAction(offerId: string): Promise<Result> {
   const supabase = await createClient();
   const { data: offer } = await supabase.from("offers").select("deal_id").eq("id", offerId).single();
 
-  const { error } = await supabase.from("offers").delete().eq("id", offerId);
+  const { data: deleted, error } = await supabase.from("offers").delete().eq("id", offerId).select("id");
   if (error) return { error: "Delete failed. Try again." };
+  if (!deleted || deleted.length === 0) return { error: "Delete failed." };
 
   let clientId: string | undefined;
   if (offer?.deal_id) {
@@ -243,10 +254,6 @@ export async function logActivityAction(input: ActivityInput): Promise<Result> {
     .single();
   if (error || !data) return { error: "Save failed. Try again." };
 
-  if (set_follow_up_on && deal_id) {
-    await supabase.from("deals").update({ next_follow_up_on: set_follow_up_on }).eq("id", deal_id);
-  }
-
   await writeAudit({
     // Reusing company.saved -- every activity hangs off a client_id (not every one has a
     // deal_id), so "deal.updated" would misrepresent plain note/call/email/meeting logs.
@@ -258,6 +265,15 @@ export async function logActivityAction(input: ActivityInput): Promise<Result> {
     metadata: { client_id, deal_id, kind },
   });
   revalidateSales(client_id);
+
+  if (set_follow_up_on && deal_id) {
+    const { error: followUpError } = await supabase
+      .from("deals")
+      .update({ next_follow_up_on: set_follow_up_on })
+      .eq("id", deal_id);
+    if (followUpError) return { error: "Activity logged, but the follow-up date could not be saved." };
+  }
+
   return { success: true as const };
 }
 
@@ -268,8 +284,9 @@ export async function deleteActivityAction(activityId: string): Promise<Result> 
   const supabase = await createClient();
   const { data: activity } = await supabase.from("crm_activities").select("client_id").eq("id", activityId).single();
 
-  const { error } = await supabase.from("crm_activities").delete().eq("id", activityId);
+  const { data: deleted, error } = await supabase.from("crm_activities").delete().eq("id", activityId).select("id");
   if (error) return { error: "Delete failed. Try again." };
+  if (!deleted || deleted.length === 0) return { error: "Delete failed." };
 
   await writeAudit({
     action: "company.saved",
@@ -334,14 +351,16 @@ export async function saveContactAction(
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid contact." };
 
   const supabase = await createClient();
-  // client_contacts.name is derived by trigger from first_name/last_name; the insert still needs
-  // a value to satisfy the NOT NULL column ahead of the trigger firing.
-  const row = { client_id: clientId, name: "", ...parsed.data };
+  // client_contacts.name is derived by trigger from first_name/last_name; the insert/update still
+  // needs a value to satisfy the NOT NULL column ahead of the trigger firing. On update, omit
+  // client_id from the payload and filter by both id and client_id -- otherwise a contactId that
+  // belongs to a different company could be re-parented onto this one via the update payload.
   const write = contactId
-    ? supabase.from("client_contacts").update(row).eq("id", contactId)
-    : supabase.from("client_contacts").insert(row);
-  const { error } = await write;
+    ? supabase.from("client_contacts").update({ name: "", ...parsed.data }).eq("id", contactId).eq("client_id", clientId)
+    : supabase.from("client_contacts").insert({ client_id: clientId, name: "", ...parsed.data });
+  const { data, error } = await write.select("id").maybeSingle();
   if (error) return { error: "Save failed. Try again." };
+  if (!data) return { error: "Contact not found." };
 
   await writeAudit({
     action: "company.saved",
@@ -366,8 +385,9 @@ export async function deleteContactAction(contactId: string): Promise<Result> {
   const supabase = await createClient();
   const { data: contact } = await supabase.from("client_contacts").select("client_id").eq("id", contactId).single();
 
-  const { error } = await supabase.from("client_contacts").delete().eq("id", contactId);
+  const { data: deleted, error } = await supabase.from("client_contacts").delete().eq("id", contactId).select("id");
   if (error) return { error: "Delete failed. Try again." };
+  if (!deleted || deleted.length === 0) return { error: "Delete failed." };
 
   await writeAudit({
     action: "company.saved",
