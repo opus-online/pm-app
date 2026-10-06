@@ -70,7 +70,13 @@ export function ProjectCreateForm({
   function onSubmit(values: CreateProjectInput) {
     setServerError(null);
     startTransition(async () => {
-      const result = await createProjectAction(values);
+      let result: Awaited<ReturnType<typeof createProjectAction>>;
+      try {
+        result = await createProjectAction(values);
+      } catch {
+        setServerError("Save failed. Try again.");
+        return;
+      }
       if ("error" in result) setServerError(result.error);
       else if (onCreated) onCreated(result.id);
       else router.push("/projects/" + result.id);

@@ -13,8 +13,8 @@ create trigger client_contacts_name before insert or update on public.client_con
   for each row execute function public.client_contact_name();
 
 update public.client_contacts
-   set first_name = split_part(name, ' ', 1),
-       last_name  = nullif(btrim(substr(name, length(split_part(name, ' ', 1)) + 1)), '')
+   set first_name = nullif(split_part(btrim(name), ' ', 1), ''),
+       last_name  = nullif(btrim(substr(btrim(name), length(split_part(btrim(name), ' ', 1)) + 1)), '')
  where first_name is null and last_name is null;
 
 -- won_at bookkeeping

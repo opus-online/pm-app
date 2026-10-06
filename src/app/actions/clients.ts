@@ -32,8 +32,9 @@ export async function upsertClientAction(
   const primaryName = primary ? [primary.first_name, primary.last_name].filter(Boolean).join(" ") : null;
 
   const supabase = await createClient();
-  // Legacy clients.contact_name/contact_email/phone stay synced from the primary contact --
-  // views/pages elsewhere (projects list, budgets) still read them.
+  // Legacy clients.contact_name/contact_email stay synced from the primary contact -- views/pages
+  // elsewhere (projects list, budgets) still read them. clients.phone is NOT synced: it is the
+  // company phone, edited in Sales.
   const clientRow = {
     name: parsed.data.name,
     reg_code: parsed.data.reg_code,
@@ -42,7 +43,6 @@ export async function upsertClientAction(
     notes: parsed.data.notes,
     contact_name: primaryName,
     contact_email: primary?.email ?? null,
-    phone: primary?.phone ?? null,
   };
   const write = clientId
     ? supabase.from("clients").update(clientRow).eq("id", clientId)

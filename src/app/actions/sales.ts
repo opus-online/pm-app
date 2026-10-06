@@ -414,6 +414,17 @@ export async function linkDealProjectAction(dealId: string, projectId: string): 
   const current = await requirePermission("manage_sales");
 
   const supabase = await createClient();
+  const [dealRes, projectRes] = await Promise.all([
+    supabase.from("deals").select("client_id").eq("id", dealId).maybeSingle(),
+    supabase.from("projects").select("client_id").eq("id", projectId).maybeSingle(),
+  ]);
+  if (dealRes.error || projectRes.error) return { error: "Save failed. Try again." };
+  if (!dealRes.data || !projectRes.data) return { error: "Invalid reference." };
+  // A deal only ever links to a project of its own company.
+  if (projectRes.data.client_id !== dealRes.data.client_id) {
+    return { error: "That project belongs to another company." };
+  }
+
   const { data, error } = await supabase
     .from("deals")
     .update({ project_id: projectId })

@@ -531,8 +531,7 @@ insert into public.client_contacts (id, client_id, name, first_name, last_name, 
   ('c2000003-0000-4000-8000-000000000003','c1000002-0000-4000-8000-000000000002','','Kadri','Lepp','female','kadri@tdg.ee','+372 5100 0003','COO','Prefers email'),
   ('c2000004-0000-4000-8000-000000000004','c1000003-0000-4000-8000-000000000003','','Andres','Saar','male','andres@kalevlog.ee','+372 5100 0004','IT manager',null),
   ('c2000005-0000-4000-8000-000000000005','c1000004-0000-4000-8000-000000000004','','Eva','Rebane','female','eva@saare.energy','+372 5100 0005','Founder',null),
-  ('c2000006-0000-4000-8000-000000000006','c1000005-0000-4000-8000-000000000005','','Toomas','Kuusk','male',null,'+372 5100 0006','Procurement',null),
-  ('c2000007-0000-4000-8000-000000000007','20000001-0000-4000-8000-000000000001','','Marko','Saar','male','marko@balticretail.ee','+372 5301 2244','CTO',null)
+  ('c2000006-0000-4000-8000-000000000006','c1000005-0000-4000-8000-000000000005','','Toomas','Kuusk','male',null,'+372 5100 0006','Procurement',null)
 on conflict (id) do nothing;
 
 insert into public.deals (id, client_id, title, stage, source, owner_id, next_follow_up_on, lost_reason, created_at) values

@@ -17,21 +17,30 @@ export const loadSalesPeople = cache(async () => {
  * most urgent follow-up first. */
 export async function loadPipeline(): Promise<PipelineRow[]> {
   const supabase = await createClient();
-  // One parallel round trip. People come from the sales_people() definer read: user_profiles RLS
-  // only exposes the viewer's own row, so a plain select couldn't name the other deal owners.
+  // One parallel round trip, then the contacts of just the deal companies. People come from the
+  // sales_people() definer read: user_profiles RLS only exposes the viewer's own row, so a plain
+  // select couldn't name the other deal owners.
   // Kind comes from prospect_client_ids() (definer, same answer as company_kind) rather than an
   // RLS-scoped projects read, which would misclassify clients whose projects the viewer can't see.
-  const [dealsRes, contactsRes, salesPeople, prospectsRes] = await Promise.all([
+  const [dealsRes, salesPeople, prospectsRes] = await Promise.all([
     supabase
       .from("deals")
       .select(
         "id, title, stage, source, next_follow_up_on, won_at, owner_id, client_id, clients(id, name, reg_code), offers(amount, status, sent_on, created_at)"
       ),
-    supabase.from("client_contacts").select("id, client_id, name, phone, email").order("name"),
     loadSalesPeople(),
     supabase.rpc("prospect_client_ids"),
   ]);
   if (dealsRes.error) throw new Error("Failed to load deals");
+
+  const companyIds = [...new Set((dealsRes.data ?? []).map((d) => d.client_id))];
+  const contactsRes = companyIds.length
+    ? await supabase
+        .from("client_contacts")
+        .select("id, client_id, name, phone, email")
+        .in("client_id", companyIds)
+        .order("name")
+    : { data: [] };
 
   const contactsByClient = new Map<string, PipelineContact[]>();
   for (const c of contactsRes.data ?? []) {
