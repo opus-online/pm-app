@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { DEAL_SOURCES, DEAL_STAGES, OFFER_STATUSES, ACTIVITY_KINDS } from "@/lib/sales/types";
 
-const blankToNull = (v: unknown) => (typeof v === "string" && v.trim() === "" ? null : v);
+export const blankToNull = (v: unknown) => (typeof v === "string" && v.trim() === "" ? null : v);
 const text = (max: number) => z.preprocess(blankToNull, z.string().trim().max(max).nullable().optional().transform((v) => v ?? null));
 const email = z.preprocess(blankToNull, z.email("Enter a valid email").max(320).nullable().optional().transform((v) => v ?? null));
-const httpUrl = z.preprocess(
+export const httpUrl = z.preprocess(
   blankToNull,
   z.url({ protocol: /^https?$/, error: "Enter a valid http(s) URL" }).max(2000).nullable().optional().transform((v) => v ?? null)
 );

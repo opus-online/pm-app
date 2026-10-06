@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { HandshakeIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { avatarTint } from "@/lib/avatar-tint";
 import { formatMoney } from "@/lib/budget";
+import { NEUTRAL_ACTION_CLASS } from "@/lib/action-styles";
 import { type ProgressPart, deriveProgress } from "@/lib/progress";
 import {
   CATEGORY_STYLE, categoryOf, humanizeAction, type AuditLogRow,
@@ -63,6 +65,7 @@ export default async function ClientDetailPage({
     { data: contactRows },
     { data: canManageRes },
     { data: canCreateRes },
+    { data: canViewSalesRes },
   ] = await Promise.all([
     // pm_id rides along so the editable-ids check below needs no second projects read.
     supabase.from("projects").select("id, pm_id").eq("client_id", id),
@@ -79,10 +82,14 @@ export default async function ClientDetailPage({
     current
       ? supabase.rpc("has_permission", { uid: current.user.id, perm: "create_project" })
       : Promise.resolve({ data: false }),
+    current
+      ? supabase.rpc("has_permission", { uid: current.user.id, perm: "view_sales" })
+      : Promise.resolve({ data: false }),
   ]);
   const contacts = (contactRows ?? []) as ClientContactRow[];
   const canManage = !!canManageRes;
   const canCreate = !!canCreateRes;
+  const canViewSales = !!canViewSalesRes;
   const projectIds = (projectRefs ?? []).map((p) => p.id);
 
   // Recent client-related audit events: client events plus events on this client's projects
@@ -247,7 +254,20 @@ export default async function ClientDetailPage({
             </p>
           </div>
         </div>
-        {canManage && <ClientFormDialog client={client} contacts={contacts} />}
+        <div className="flex shrink-0 items-center gap-2">
+          {canViewSales && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className={NEUTRAL_ACTION_CLASS}
+              render={<Link href={`/sales/companies/${client.id}`} />}
+            >
+              <HandshakeIcon />
+              Sales
+            </Button>
+          )}
+          {canManage && <ClientFormDialog client={client} contacts={contacts} />}
+        </div>
       </div>
 
       <ClientHeaderStrip

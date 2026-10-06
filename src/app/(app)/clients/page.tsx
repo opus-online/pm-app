@@ -29,6 +29,7 @@ export default async function ClientsPage() {
     { data: projectRows },
     { data: contactRows },
     { data: canManageClients },
+    { data: prospects },
   ] = await Promise.all([
     supabase.from("clients").select("*").order("name"),
     supabase.from("projects").select("id, client_id, name, status").order("name"),
@@ -41,8 +42,13 @@ export default async function ClientsPage() {
     current
       ? supabase.rpc("has_permission", { uid: current.user.id, perm: "manage_clients" })
       : Promise.resolve({ data: false }),
+    // CRM prospects (clients with a deal but no won deal/project) live in Sales, not here --
+    // same definer RPC the Sales pipeline uses (load-pipeline.ts), ungated by design since the
+    // kind split is identical for every viewer.
+    supabase.rpc("prospect_client_ids"),
   ]);
-  const clients = (data ?? []) as ClientRow[];
+  const prospectIds = new Set((prospects ?? []) as string[]);
+  const clients = ((data ?? []) as ClientRow[]).filter((c) => !prospectIds.has(c.id));
 
   const projectNamesByClientId = new Map<string, string[]>();
   const activeCountByClientId = new Map<string, number>();

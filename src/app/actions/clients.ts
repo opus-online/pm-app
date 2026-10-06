@@ -28,14 +28,19 @@ export async function upsertClientAction(
   const primaryIndex = Math.max(0, parsed.data.contacts.findIndex((c) => c.is_primary));
   const contacts = parsed.data.contacts.map((c, i) => ({ ...c, is_primary: i === primaryIndex }));
   const primary = contacts[primaryIndex] ?? null;
+  // first_name is required per row, so this is never empty when a primary exists.
+  const primaryName = primary ? [primary.first_name, primary.last_name].filter(Boolean).join(" ") : null;
 
   const supabase = await createClient();
   // Legacy clients.contact_name/contact_email/phone stay synced from the primary contact --
   // views/pages elsewhere (projects list, budgets) still read them.
   const clientRow = {
     name: parsed.data.name,
+    reg_code: parsed.data.reg_code,
+    email: parsed.data.email,
+    website: parsed.data.website,
     notes: parsed.data.notes,
-    contact_name: primary?.name ?? null,
+    contact_name: primaryName,
     contact_email: primary?.email ?? null,
     phone: primary?.phone ?? null,
   };
@@ -43,19 +48,39 @@ export async function upsertClientAction(
     ? supabase.from("clients").update(clientRow).eq("id", clientId)
     : supabase.from("clients").insert(clientRow);
   const { data: client, error } = await write.select("id, name").single();
-  if (error || !client) return { error: "Save failed. Try again." };
+  if (error || !client) {
+    // reg_code is unique case/space-insensitively (DB functional unique index) -- 23505 is the
+    // only way this insert/update fails on bad input, so no separate pre-check is needed.
+    return error?.code === "23505"
+      ? { error: "A company with this registry code already exists." }
+      : { error: "Save failed. Try again." };
+  }
 
   // Replace-all write for the contact rows: tiny lists, and it keeps removals/reorders/primary
   // flips one code path. RLS ("manage client_contacts" = manage_clients) is the real backstop.
+  // gender/description round-trip through the form as hidden passthrough values (see
+  // client-form.tsx toDefaults) even though this form has no UI for them, so editing a contact
+  // here never wipes what the Sales contact dialog set.
   const { error: clearError } = await supabase
     .from("client_contacts")
     .delete()
     .eq("client_id", client.id);
   if (clearError) return { error: "Save failed. Try again." };
   if (contacts.length > 0) {
-    const { error: contactsError } = await supabase
-      .from("client_contacts")
-      .insert(contacts.map((c) => ({ ...c, client_id: client.id })));
+    const { error: contactsError } = await supabase.from("client_contacts").insert(
+      contacts.map((c) => ({
+        client_id: client.id,
+        name: "", // trigger derives this from first_name/last_name
+        first_name: c.first_name,
+        last_name: c.last_name,
+        gender: c.gender,
+        description: c.description,
+        email: c.email,
+        phone: c.phone,
+        role: c.role,
+        is_primary: c.is_primary,
+      }))
+    );
     if (contactsError) return { error: "Save failed. Try again." };
   }
 
