@@ -118,7 +118,7 @@ create policy "edit own crm_activities" on public.crm_activities for update
 create policy "delete own crm_activities" on public.crm_activities for delete
   using (actor_id = auth.uid() and kind <> 'system' and public.has_permission(auth.uid(),'manage_sales'));
 
--- salespeople create/edit companies + contacts (delete stays manage_clients)
+-- salespeople create/edit companies and manage their contacts; deleting companies stays manage_clients
 create policy "sales insert clients" on public.clients for insert
   with check (public.has_permission(auth.uid(),'manage_sales'));
 create policy "sales update clients" on public.clients for update
