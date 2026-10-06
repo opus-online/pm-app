@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/auth/session";
+import { pickMainRole } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
 import { AdminTabs } from "../admin-tabs";
 import { UsersTable } from "./users-table";
@@ -21,7 +22,8 @@ export default async function AdminUsersPage() {
 
   const rows = (users ?? []).map(({ user_roles, ...rest }) => ({
     ...rest,
-    role: user_roles?.[0]?.role_key ?? null,
+    role: pickMainRole((user_roles ?? []).map((r) => r.role_key)),
+    sales: (user_roles ?? []).some((r) => r.role_key === "sales"),
   }));
 
   return (

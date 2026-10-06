@@ -1,8 +1,11 @@
 "use client";
 
-import { changeUserRoleAction } from "@/app/actions/admin";
+import { startTransition } from "react";
+import { toast } from "sonner";
+import { changeUserRoleAction, setSalesAccessAction } from "@/app/actions/admin";
 import { APP_ROLES } from "@/lib/validation/auth";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { InlineEditSelect, type InlineEditOption } from "@/components/inline-edit-select";
 import { SortableHead } from "@/components/data-table/sortable-head";
 import { useSort, type SortAccessors } from "@/components/data-table/use-sort";
@@ -19,6 +22,7 @@ type UserRow = {
   full_name: string | null;
   status: "pending" | "active" | "disabled";
   role: string | null;
+  sales: boolean;
   created_at: string;
 };
 
@@ -66,6 +70,7 @@ export function UsersTable({
           <SortableHead label="User" sortKey="user" sort={sort} onToggle={toggle} />
           <SortableHead label="Status" sortKey="status" sort={sort} onToggle={toggle} />
           <SortableHead label="Role" sortKey="role" sort={sort} onToggle={toggle} />
+          <TableHead>Sales</TableHead>
           <SortableHead label="Joined" sortKey="joined" sort={sort} onToggle={toggle} />
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
@@ -92,6 +97,18 @@ export function UsersTable({
                   onSave={changeUserRoleAction.bind(null, user.id)}
                 />
               )}
+            </TableCell>
+            <TableCell>
+              <Switch
+                checked={user.sales}
+                aria-label="Sales access"
+                onCheckedChange={(v) =>
+                  startTransition(async () => {
+                    const r = await setSalesAccessAction(user.id, v);
+                    if ("error" in r) toast.error(r.error);
+                  })
+                }
+              />
             </TableCell>
             <TableCell className="text-sm text-muted-foreground">
               {formatDate(user.created_at)}

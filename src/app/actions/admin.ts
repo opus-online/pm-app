@@ -75,9 +75,9 @@ export async function approveUserAction(
 
 /**
  * Inline "change role" cell on the admin users table (ux-interaction-audit.md #35 -- there was
- * previously no way to re-role a user after their initial approval). v1's model assumes a single
- * role per user (users-table.tsx only ever reads `user_roles?.[0]`), so this replaces whatever
- * role row(s) the user currently holds rather than adding a second one alongside it.
+ * previously no way to re-role a user after their initial approval).
+ *
+ * Main role only — the sales add-on is managed by setSalesAccessAction.
  *
  * Uses requirePermission('manage_users') rather than requireAdmin() -- same effective gate today
  * (manage_users has no role_permissions rows, so only the is_admin() bypass in has_permission
@@ -114,6 +114,36 @@ export async function changeUserRoleAction(
     resourceType: "user",
     resourceId: parsed.data.userId,
     metadata: { role: parsed.data.role },
+  });
+
+  revalidatePath("/admin/users");
+  return { success: true as const };
+}
+
+/** Sales add-on toggle (users-table.tsx "Sales" column switch). Separate from
+ * changeUserRoleAction: this grants/revokes the `sales` role alongside the user's main role
+ * rather than swapping it, via the admin-only, self-auditing set_sales_access RPC. */
+export async function setSalesAccessAction(
+  userId: string,
+  enabled: boolean
+): Promise<{ error: string } | { success: true }> {
+  if (!z.uuid().safeParse(userId).success) return { error: "Invalid user." };
+  const current = await requirePermission("manage_users");
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_sales_access", {
+    target_user: userId,
+    enabled,
+  });
+  if (error) return { error: "Could not update Sales access." };
+
+  await writeAudit({
+    action: "user.sales_access_changed",
+    actorId: current.user.id,
+    actorEmail: current.profile.email,
+    resourceType: "user",
+    resourceId: userId,
+    metadata: { enabled },
   });
 
   revalidatePath("/admin/users");
