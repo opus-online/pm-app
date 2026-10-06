@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/database.types";
+import { pickMainRole } from "@/lib/auth/roles";
 
 export type Profile = Database["public"]["Tables"]["user_profiles"]["Row"];
 
@@ -19,10 +20,12 @@ export async function getCurrentUser() {
   if (!profile) return null;
 
   const { user_roles: roleRows, ...profileFields } = profile;
+  const roles = (roleRows ?? []).map((r) => r.role_key);
   return {
     user,
     profile: profileFields as Profile,
-    role: roleRows?.[0]?.role_key ?? null,
+    role: pickMainRole(roles),
+    roles,
   };
 }
 

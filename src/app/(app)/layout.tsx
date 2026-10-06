@@ -2,6 +2,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
+import type { Permission } from "@/lib/auth/permissions";
+import { NAV_ITEMS } from "./nav-config";
 import { Separator } from "@/components/ui/separator";
 import {
   SidebarInset,
@@ -22,9 +24,22 @@ export default async function AppLayout({
 
   const isAdmin = current.role === "admin";
 
+  const supabase = await createClient();
+
+  // Permission-gated nav items (e.g. Sales) are only shown when the viewer actually holds the
+  // permission -- checked in parallel via has_permission rather than hardcoding role names here.
+  const gated = NAV_ITEMS.flatMap((i) => (i.permission ? [i.permission] : []));
+  const checks = await Promise.all(
+    gated.map((perm) =>
+      supabase
+        .rpc("has_permission", { uid: current.user.id, perm })
+        .then((r) => (r.data === true ? perm : null))
+    )
+  );
+  const permissions = checks.filter((p): p is Permission => p !== null);
+
   // Topbar avatar: the viewer's people-directory photo if they have one (RLS: view_people is
   // global for every seeded role, and a missing row just falls back to tinted initials).
-  const supabase = await createClient();
   const { data: me } = await supabase
     .from("people")
     .select("avatar_url")
@@ -36,7 +51,7 @@ export default async function AppLayout({
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
-      <AppSidebar isAdmin={isAdmin} />
+      <AppSidebar isAdmin={isAdmin} permissions={permissions} />
       <SidebarInset>
         <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
           <div className="flex items-center gap-2">

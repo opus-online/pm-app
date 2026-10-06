@@ -47,25 +47,38 @@ export function ProjectCreateForm({
   contacts,
   pms,
   currentUserId,
+  defaultClientId,
+  onCreated,
 }: {
   clients: ClientOption[];
   contacts: ClientContactOption[];
   pms: PmOption[];
   currentUserId: string;
+  /** Preselects the client (e.g. creating the project for a won deal). */
+  defaultClientId?: string | null;
+  /** Replaces the default "go to the new project" navigation. */
+  onCreated?: (id: string) => void;
 }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const form = useForm<CreateProjectInput>({
     resolver: zodResolver(createProjectSchema),
-    defaultValues: { ...DEFAULT_VALUES, pm_id: currentUserId },
+    defaultValues: { ...DEFAULT_VALUES, pm_id: currentUserId, client_id: defaultClientId ?? null },
   });
 
   function onSubmit(values: CreateProjectInput) {
     setServerError(null);
     startTransition(async () => {
-      const result = await createProjectAction(values);
+      let result: Awaited<ReturnType<typeof createProjectAction>>;
+      try {
+        result = await createProjectAction(values);
+      } catch {
+        setServerError("Save failed. Try again.");
+        return;
+      }
       if ("error" in result) setServerError(result.error);
+      else if (onCreated) onCreated(result.id);
       else router.push("/projects/" + result.id);
     });
   }

@@ -8,6 +8,7 @@ export const PERMISSIONS = [
   "view_budget","manage_budget","view_internal_cost",
   "view_clients","manage_clients","view_people","manage_people",
   "log_time","view_time",
+  "view_sales","manage_sales",
   "view_credentials","reveal_credential","manage_credentials",
   "manage_delegations","manage_access","manage_users","view_audit","export_data",
 ] as const;

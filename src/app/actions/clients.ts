@@ -28,34 +28,116 @@ export async function upsertClientAction(
   const primaryIndex = Math.max(0, parsed.data.contacts.findIndex((c) => c.is_primary));
   const contacts = parsed.data.contacts.map((c, i) => ({ ...c, is_primary: i === primaryIndex }));
   const primary = contacts[primaryIndex] ?? null;
+  // first_name is required per row, so this is never empty when a primary exists.
+  const primaryName = primary ? [primary.first_name, primary.last_name].filter(Boolean).join(" ") : null;
 
   const supabase = await createClient();
-  // Legacy clients.contact_name/contact_email/phone stay synced from the primary contact --
-  // views/pages elsewhere (projects list, budgets) still read them.
+  // Legacy clients.contact_name/contact_email stay synced from the primary contact -- views/pages
+  // elsewhere (projects list, budgets) still read them. clients.phone is NOT synced: it is the
+  // company phone, edited in Sales.
   const clientRow = {
     name: parsed.data.name,
+    reg_code: parsed.data.reg_code,
+    email: parsed.data.email,
+    website: parsed.data.website,
     notes: parsed.data.notes,
-    contact_name: primary?.name ?? null,
+    contact_name: primaryName,
     contact_email: primary?.email ?? null,
-    phone: primary?.phone ?? null,
   };
   const write = clientId
     ? supabase.from("clients").update(clientRow).eq("id", clientId)
     : supabase.from("clients").insert(clientRow);
   const { data: client, error } = await write.select("id, name").single();
-  if (error || !client) return { error: "Save failed. Try again." };
+  if (error || !client) {
+    // reg_code is unique case/space-insensitively (DB functional unique index) -- 23505 is the
+    // only way this insert/update fails on bad input, so no separate pre-check is needed.
+    return error?.code === "23505"
+      ? { error: "A company with this registry code already exists." }
+      : { error: "Save failed. Try again." };
+  }
 
-  // Replace-all write for the contact rows: tiny lists, and it keeps removals/reorders/primary
-  // flips one code path. RLS ("manage client_contacts" = manage_clients) is the real backstop.
-  const { error: clearError } = await supabase
-    .from("client_contacts")
-    .delete()
-    .eq("client_id", client.id);
-  if (clearError) return { error: "Save failed. Try again." };
-  if (contacts.length > 0) {
-    const { error: contactsError } = await supabase
+  if (clientId) {
+    // Id-matched sync, NOT delete+reinsert: a fresh row id on every save would silently null out
+    // crm_activities.contact_id and projects.client_contact_id, which point at a specific
+    // client_contacts row (bug found in review -- the old code deleted and reinserted every
+    // contact on every client save, new ids and all). A row with a submitted `id` is updated in
+    // place; a row with no `id` is a new contact and gets inserted; any existing row whose id
+    // was NOT resubmitted (the user removed it in the form) gets deleted. RLS ("manage
+    // client_contacts" = manage_clients) is the real backstop; `.eq("client_id", client.id)` on
+    // the update additionally guards against an id for a *different* client's contact being
+    // submitted.
+    const existing = contacts.filter((c): c is typeof c & { id: string } => !!c.id);
+    const toInsert = contacts.filter((c) => !c.id);
+    const submittedIds = new Set(existing.map((c) => c.id));
+
+    const { data: beforeRows, error: beforeError } = await supabase
       .from("client_contacts")
-      .insert(contacts.map((c) => ({ ...c, client_id: client.id })));
+      .select("id")
+      .eq("client_id", client.id);
+    if (beforeError) return { error: "Save failed. Try again." };
+    const toDeleteIds = (beforeRows ?? []).map((r) => r.id).filter((id) => !submittedIds.has(id));
+
+    // Only the fields this form edits -- gender/description are deliberately left out of the
+    // update payload (unlike the insert below) so a concurrent edit via the Sales contact dialog
+    // isn't overwritten by a client-form save that never touched those fields.
+    for (const c of existing) {
+      const { error: updateError } = await supabase
+        .from("client_contacts")
+        .update({
+          first_name: c.first_name,
+          last_name: c.last_name,
+          email: c.email,
+          phone: c.phone,
+          role: c.role,
+          is_primary: c.is_primary,
+        })
+        .eq("id", c.id)
+        .eq("client_id", client.id);
+      if (updateError) return { error: "Save failed. Try again." };
+    }
+
+    if (toInsert.length > 0) {
+      const { error: insertError } = await supabase.from("client_contacts").insert(
+        toInsert.map((c) => ({
+          client_id: client.id,
+          name: "", // trigger derives this from first_name/last_name
+          first_name: c.first_name,
+          last_name: c.last_name,
+          gender: c.gender,
+          description: c.description,
+          email: c.email,
+          phone: c.phone,
+          role: c.role,
+          is_primary: c.is_primary,
+        }))
+      );
+      if (insertError) return { error: "Save failed. Try again." };
+    }
+
+    if (toDeleteIds.length > 0) {
+      const { error: deleteError } = await supabase
+        .from("client_contacts")
+        .delete()
+        .eq("client_id", client.id)
+        .in("id", toDeleteIds);
+      if (deleteError) return { error: "Save failed. Try again." };
+    }
+  } else if (contacts.length > 0) {
+    // Create path: no existing rows to reconcile against, so every submitted contact is new.
+    const { error: contactsError } = await supabase.from("client_contacts").insert(
+      contacts.map((c) => ({
+        client_id: client.id,
+        name: "", // trigger derives this from first_name/last_name
+        first_name: c.first_name,
+        last_name: c.last_name,
+        gender: c.gender,
+        description: c.description,
+        email: c.email,
+        phone: c.phone,
+        role: c.role,
+        is_primary: c.is_primary,
+      }))
+    );
     if (contactsError) return { error: "Save failed. Try again." };
   }
 

@@ -14,9 +14,16 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import type { Permission } from "@/lib/auth/permissions";
 import { NAV_ITEMS } from "./nav-config";
 
-export function AppSidebar({ isAdmin }: { isAdmin: boolean }) {
+export function AppSidebar({
+  isAdmin,
+  permissions,
+}: {
+  isAdmin: boolean;
+  permissions: Permission[];
+}) {
   const pathname = usePathname();
 
   return (
@@ -35,47 +42,49 @@ export function AppSidebar({ isAdmin }: { isAdmin: boolean }) {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin).map(
-                (item) => {
-                  const isActive =
-                    pathname === item.href ||
-                    pathname?.startsWith(`${item.href}/`);
-                  const Icon = item.icon;
+              {NAV_ITEMS.filter(
+                (item) =>
+                  (!item.adminOnly || isAdmin) &&
+                  (!item.permission || permissions.includes(item.permission))
+              ).map((item) => {
+                const isActive =
+                  pathname === item.href ||
+                  pathname?.startsWith(`${item.href}/`);
+                const Icon = item.icon;
 
-                  if (item.comingSoon) {
-                    return (
-                      <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton
-                          disabled
-                          aria-disabled="true"
-                          tooltip={`${item.label} (coming soon)`}
-                        >
-                          <Icon />
-                          <span>{item.label}</span>
-                        </SidebarMenuButton>
-                        <SidebarMenuBadge>
-                          <Badge variant="secondary" className="text-[10px]">
-                            Soon
-                          </Badge>
-                        </SidebarMenuBadge>
-                      </SidebarMenuItem>
-                    );
-                  }
-
+                if (item.comingSoon) {
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton
-                        isActive={isActive}
-                        tooltip={item.label}
-                        render={<Link href={item.href} />}
+                        disabled
+                        aria-disabled="true"
+                        tooltip={`${item.label} (coming soon)`}
                       >
                         <Icon />
                         <span>{item.label}</span>
                       </SidebarMenuButton>
+                      <SidebarMenuBadge>
+                        <Badge variant="secondary" className="text-[10px]">
+                          Soon
+                        </Badge>
+                      </SidebarMenuBadge>
                     </SidebarMenuItem>
                   );
                 }
-              )}
+
+                return (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      isActive={isActive}
+                      tooltip={item.label}
+                      render={<Link href={item.href} />}
+                    >
+                      <Icon />
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

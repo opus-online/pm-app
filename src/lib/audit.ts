@@ -54,7 +54,14 @@ export type AuditAction =
   | "delegation.created"
   | "delegation.revoked"
   | "access.granted"
-  | "access.revoked";
+  | "access.revoked"
+  | "user.sales_access_changed"
+  | "deal.created"
+  | "deal.updated"
+  | "deal.deleted"
+  | "offer.saved"
+  | "offer.deleted"
+  | "company.saved";
 
 export type AuditEntry = {
   action: AuditAction;

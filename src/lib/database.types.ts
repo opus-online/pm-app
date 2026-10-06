@@ -283,9 +283,13 @@ export type Database = {
         Row: {
           client_id: string
           created_at: string | null
+          description: string | null
           email: string | null
+          first_name: string | null
+          gender: Database["public"]["Enums"]["contact_gender"] | null
           id: string
           is_primary: boolean
+          last_name: string | null
           name: string
           phone: string | null
           role: string | null
@@ -293,9 +297,13 @@ export type Database = {
         Insert: {
           client_id: string
           created_at?: string | null
+          description?: string | null
           email?: string | null
+          first_name?: string | null
+          gender?: Database["public"]["Enums"]["contact_gender"] | null
           id?: string
           is_primary?: boolean
+          last_name?: string | null
           name: string
           phone?: string | null
           role?: string | null
@@ -303,9 +311,13 @@ export type Database = {
         Update: {
           client_id?: string
           created_at?: string | null
+          description?: string | null
           email?: string | null
+          first_name?: string | null
+          gender?: Database["public"]["Enums"]["contact_gender"] | null
           id?: string
           is_primary?: boolean
+          last_name?: string | null
           name?: string
           phone?: string | null
           role?: string | null
@@ -325,31 +337,40 @@ export type Database = {
           contact_email: string | null
           contact_name: string | null
           created_at: string
+          email: string | null
           id: string
           name: string
           notes: string | null
           phone: string | null
+          reg_code: string | null
           updated_at: string
+          website: string | null
         }
         Insert: {
           contact_email?: string | null
           contact_name?: string | null
           created_at?: string
+          email?: string | null
           id?: string
           name: string
           notes?: string | null
           phone?: string | null
+          reg_code?: string | null
           updated_at?: string
+          website?: string | null
         }
         Update: {
           contact_email?: string | null
           contact_name?: string | null
           created_at?: string
+          email?: string | null
           id?: string
           name?: string
           notes?: string | null
           phone?: string | null
+          reg_code?: string | null
           updated_at?: string
+          website?: string | null
         }
         Relationships: []
       }
@@ -478,6 +499,165 @@ export type Database = {
           },
           {
             foreignKeyName: "credentials_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      crm_activities: {
+        Row: {
+          actor_id: string | null
+          body: string
+          client_id: string
+          contact_id: string | null
+          created_at: string
+          deal_id: string | null
+          id: string
+          kind: Database["public"]["Enums"]["activity_kind"]
+          metadata: Json
+          occurred_at: string
+        }
+        Insert: {
+          actor_id?: string | null
+          body?: string
+          client_id: string
+          contact_id?: string | null
+          created_at?: string
+          deal_id?: string | null
+          id?: string
+          kind: Database["public"]["Enums"]["activity_kind"]
+          metadata?: Json
+          occurred_at?: string
+        }
+        Update: {
+          actor_id?: string | null
+          body?: string
+          client_id?: string
+          contact_id?: string | null
+          created_at?: string
+          deal_id?: string | null
+          id?: string
+          kind?: Database["public"]["Enums"]["activity_kind"]
+          metadata?: Json
+          occurred_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crm_activities_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crm_activities_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crm_activities_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "client_contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crm_activities_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deals: {
+        Row: {
+          client_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          lost_reason: string | null
+          next_follow_up_on: string | null
+          owner_id: string
+          project_id: string | null
+          source: Database["public"]["Enums"]["deal_source"]
+          stage: Database["public"]["Enums"]["deal_stage"]
+          title: string
+          updated_at: string
+          won_at: string | null
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          lost_reason?: string | null
+          next_follow_up_on?: string | null
+          owner_id: string
+          project_id?: string | null
+          source?: Database["public"]["Enums"]["deal_source"]
+          stage?: Database["public"]["Enums"]["deal_stage"]
+          title: string
+          updated_at?: string
+          won_at?: string | null
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          lost_reason?: string | null
+          next_follow_up_on?: string | null
+          owner_id?: string
+          project_id?: string | null
+          source?: Database["public"]["Enums"]["deal_source"]
+          stage?: Database["public"]["Enums"]["deal_stage"]
+          title?: string
+          updated_at?: string
+          won_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deals_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deals_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_budget_rows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_list_rows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deals_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -658,6 +838,66 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      offers: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          deal_id: string
+          id: string
+          link_url: string | null
+          note: string | null
+          sent_on: string | null
+          status: Database["public"]["Enums"]["offer_status"]
+          title: string
+          updated_at: string
+          valid_until: string | null
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          deal_id: string
+          id?: string
+          link_url?: string | null
+          note?: string | null
+          sent_on?: string | null
+          status?: Database["public"]["Enums"]["offer_status"]
+          title: string
+          updated_at?: string
+          valid_until?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          deal_id?: string
+          id?: string
+          link_url?: string | null
+          note?: string | null
+          sent_on?: string | null
+          status?: Database["public"]["Enums"]["offer_status"]
+          title?: string
+          updated_at?: string
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "offers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "offers_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
             referencedColumns: ["id"]
           },
         ]
@@ -1862,6 +2102,7 @@ export type Database = {
         Args: { target_user: string }
         Returns: number
       }
+      company_kind: { Args: { company: string }; Returns: string }
       create_credential_secret: {
         Args: {
           secret: string
@@ -1880,6 +2121,15 @@ export type Database = {
           p_to_user: string
         }
         Returns: string
+      }
+      create_lead: {
+        Args: {
+          p_client_id: string
+          p_company: Json
+          p_contact: Json
+          p_deal: Json
+        }
+        Returns: Json
       }
       current_person_id: { Args: never; Returns: string }
       has_credential_access: {
@@ -1901,6 +2151,7 @@ export type Database = {
           user_agent: string
         }[]
       }
+      normalize_reg_code: { Args: { code: string }; Returns: string }
       part_project: { Args: { p_part: string }; Returns: string }
       person_current_allocation: {
         Args: { p_person: string }
@@ -1924,6 +2175,7 @@ export type Database = {
           user_id: string
         }[]
       }
+      prospect_client_ids: { Args: never; Returns: string[] }
       remove_project_person: {
         Args: { p_project: string; p_user_id: string }
         Returns: undefined
@@ -1936,16 +2188,34 @@ export type Database = {
         }[]
       }
       revoke_session: { Args: { session_id: string }; Returns: boolean }
+      sales_people: {
+        Args: never
+        Returns: {
+          assignable: boolean
+          avatar_url: string
+          id: string
+          name: string
+        }[]
+      }
       set_person_allocation: {
         Args: { p_allocation: number; p_project: string; p_user_id: string }
+        Returns: undefined
+      }
+      set_sales_access: {
+        Args: { enabled: boolean; target_user: string }
         Returns: undefined
       }
       set_user_role: {
         Args: { new_role: string; target_user: string }
         Returns: undefined
       }
+      stage_label: {
+        Args: { s: Database["public"]["Enums"]["deal_stage"] }
+        Returns: string
+      }
     }
     Enums: {
+      activity_kind: "call" | "email" | "meeting" | "note" | "system"
       billing_model: "fixed" | "hourly"
       budget_item_type:
         | "planned_cost"
@@ -1954,6 +2224,7 @@ export type Database = {
         | "payment"
         | "change"
       budget_type: "fixed" | "hourly" | "mixed"
+      contact_gender: "female" | "male" | "other"
       credential_environment: "prod" | "prelive" | "staging" | "dev" | "other"
       credential_type:
         | "server_login"
@@ -1965,6 +2236,20 @@ export type Database = {
         | "ssh"
         | "client_provided"
       credential_visibility: "project_members" | "pms_only" | "admins_only"
+      deal_source:
+        | "inbound"
+        | "outbound"
+        | "referral"
+        | "existing_client"
+        | "event"
+        | "other"
+      deal_stage:
+        | "new"
+        | "contacted"
+        | "offer_sent"
+        | "negotiation"
+        | "won"
+        | "lost"
       employment_type: "employee" | "contractor" | "freelance"
       link_type:
         | "repo"
@@ -1981,6 +2266,7 @@ export type Database = {
         | "db_dashboard"
         | "custom"
       link_visibility: "project" | "pm_only" | "admins_only"
+      offer_status: "draft" | "sent" | "accepted" | "rejected"
       part_status: "not_started" | "in_progress" | "blocked" | "done"
       permission_scope: "global" | "own_projects" | "member_projects"
       person_status: "active" | "inactive"
@@ -2125,6 +2411,7 @@ export const Constants = {
   },
   public: {
     Enums: {
+      activity_kind: ["call", "email", "meeting", "note", "system"],
       billing_model: ["fixed", "hourly"],
       budget_item_type: [
         "planned_cost",
@@ -2134,6 +2421,7 @@ export const Constants = {
         "change",
       ],
       budget_type: ["fixed", "hourly", "mixed"],
+      contact_gender: ["female", "male", "other"],
       credential_environment: ["prod", "prelive", "staging", "dev", "other"],
       credential_type: [
         "server_login",
@@ -2146,6 +2434,22 @@ export const Constants = {
         "client_provided",
       ],
       credential_visibility: ["project_members", "pms_only", "admins_only"],
+      deal_source: [
+        "inbound",
+        "outbound",
+        "referral",
+        "existing_client",
+        "event",
+        "other",
+      ],
+      deal_stage: [
+        "new",
+        "contacted",
+        "offer_sent",
+        "negotiation",
+        "won",
+        "lost",
+      ],
       employment_type: ["employee", "contractor", "freelance"],
       link_type: [
         "repo",
@@ -2163,6 +2467,7 @@ export const Constants = {
         "custom",
       ],
       link_visibility: ["project", "pm_only", "admins_only"],
+      offer_status: ["draft", "sent", "accepted", "rejected"],
       part_status: ["not_started", "in_progress", "blocked", "done"],
       permission_scope: ["global", "own_projects", "member_projects"],
       person_status: ["active", "inactive"],
