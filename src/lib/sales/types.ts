@@ -1,0 +1,11 @@
+export const DEAL_STAGES = ["new", "contacted", "offer_sent", "negotiation", "won", "lost"] as const;
+export type DealStage = (typeof DEAL_STAGES)[number];
+export const OPEN_STAGES: DealStage[] = ["new", "contacted", "offer_sent", "negotiation"];
+export const DEAL_SOURCES = ["inbound", "outbound", "referral", "existing_client", "event", "other"] as const;
+export type DealSource = (typeof DEAL_SOURCES)[number];
+export const OFFER_STATUSES = ["draft", "sent", "accepted", "rejected"] as const;
+export type OfferStatus = (typeof OFFER_STATUSES)[number];
+export const ACTIVITY_KINDS = ["call", "email", "meeting", "note"] as const; // user-loggable
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number] | "system";
+export type OfferLite = { amount: number; status: OfferStatus; sent_on: string | null; created_at: string };
+export type DealLite = { id: string; stage: DealStage; next_follow_up_on: string | null; won_at: string | null; offers: OfferLite[] };
