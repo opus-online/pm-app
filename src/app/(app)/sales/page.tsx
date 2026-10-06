@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { pipelineTotals } from "@/lib/sales/pipeline";
-import { loadPipeline } from "./load-pipeline";
+import { loadCompanyOptions, loadPipeline, loadSalesOwners } from "./load-pipeline";
+import { NewLeadDialog } from "./new-lead-dialog";
 import { formatEur } from "./money";
 import { PipelineBoard } from "./pipeline-board";
 import { PipelineKpis } from "./pipeline-kpis";
@@ -27,8 +28,13 @@ export default async function SalesPage({
 
   const { view: viewParam } = await searchParams;
   const view: PipelineView = viewParam === "board" ? "board" : "list";
-  // Task 9 adds loadSalesOwners() + loadCompanyOptions() here for the New lead dialog.
-  const rows = await loadPipeline();
+  const manage = canManage === true;
+  // The dialog's pickers are only loaded for users who can create leads.
+  const [rows, owners, companies] = await Promise.all([
+    loadPipeline(),
+    manage ? loadSalesOwners() : Promise.resolve([]),
+    manage ? loadCompanyOptions() : Promise.resolve([]),
+  ]);
   const totals = pipelineTotals(rows);
 
   return (
@@ -44,15 +50,16 @@ export default async function SalesPage({
         </div>
         <div className="flex items-center gap-2">
           <ViewToggle view={view} />
+          {manage && <NewLeadDialog companies={companies} owners={owners} currentUserId={current.user.id} />}
         </div>
       </div>
 
       <PipelineKpis rows={rows} />
 
       {view === "board" ? (
-        <PipelineBoard rows={rows} canManage={canManage === true} />
+        <PipelineBoard rows={rows} canManage={manage} />
       ) : (
-        <PipelineTable rows={rows} canManage={canManage === true} />
+        <PipelineTable rows={rows} canManage={manage} />
       )}
     </div>
   );
