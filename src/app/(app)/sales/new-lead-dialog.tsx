@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm, useWatch, type Resolver } from "react-hook-form";
@@ -116,6 +116,9 @@ function NewLeadForm({
   const preselected = defaultClientId && companies.some((c) => c.id === defaultClientId) ? defaultClientId : null;
   const [hit, setHit] = useState<Hit | null>(null);
   const [checking, setChecking] = useState(false);
+  // Bumped by every lookup and every company-mode switch: a lookup applies its answer only if
+  // nothing has happened since it started (read/written in handlers only, never during render).
+  const lookupId = useRef(0);
 
   const resolver = useMemo<Resolver<LeadForm>>(() => {
     const zod = zodResolver(newLeadSchema);
@@ -127,7 +130,10 @@ function NewLeadForm({
       // The schema keeps first_name optional (no contact at all is fine) -- but a half-filled
       // contact without a name would be silently dropped by the server, so ask for it here.
       if (contact && !contact.first_name?.trim()) {
-        errors.contact = { first_name: { type: "required", message: "First name is required" } };
+        errors.contact = {
+          ...((errors.contact as object | undefined) ?? {}),
+          first_name: { type: "required", message: "First name is required" },
+        };
       }
       return Object.keys(errors).length
         ? { values: {}, errors: errors as never }
@@ -157,6 +163,8 @@ function NewLeadForm({
   }
 
   function pickExisting(id: string) {
+    lookupId.current++;
+    setChecking(false);
     form.setValue("client_id", id);
     form.clearErrors("company");
     setMode("existing");
@@ -167,14 +175,20 @@ function NewLeadForm({
   }
 
   function chooseNew(prefillName: string) {
+    lookupId.current++;
     form.setValue("client_id", null);
     if (prefillName && !form.getValues("company.name").trim()) form.setValue("company.name", prefillName);
     setMode("new");
     setContactOpen(true);
     setServerError(null);
+    // Coming back to "new" with a reg code already typed: re-check it rather than trust a stale hit.
+    setHit(null);
+    void checkRegCode(form.getValues("company.reg_code"));
   }
 
   function clearCompany() {
+    lookupId.current++;
+    setChecking(false);
     form.setValue("client_id", null);
     setMode("none");
     setHit(null);
@@ -182,16 +196,24 @@ function NewLeadForm({
 
   async function checkRegCode(raw: string) {
     const code = raw.trim();
-    if (!code) return;
+    const id = ++lookupId.current;
+    if (!code) {
+      setChecking(false);
+      return;
+    }
     setChecking(true);
+    // Stale = another lookup or a mode switch happened meanwhile, or the field was edited.
+    const current = () =>
+      id === lookupId.current &&
+      form.getValues("mode") === "new" &&
+      form.getValues("company.reg_code").trim() === code;
     try {
       const found = await findCompanyByRegCodeAction(code);
-      // Ignore a stale answer if the field changed while the lookup was in flight.
-      if (form.getValues("company.reg_code").trim() === code) setHit(found);
+      if (current()) setHit(found);
     } catch {
       // Lookup is a convenience; the server re-checks on submit.
     } finally {
-      setChecking(false);
+      if (id === lookupId.current) setChecking(false);
     }
   }
 
@@ -199,7 +221,14 @@ function NewLeadForm({
     setServerError(null);
     const payload = prune(values);
     startTransition(async () => {
-      const result = await createLeadAction(payload);
+      let result: Awaited<ReturnType<typeof createLeadAction>>;
+      try {
+        result = await createLeadAction(payload);
+      } catch {
+        // A thrown action (network, permission) must not hit the error boundary and lose the form.
+        setServerError("Could not create the lead. Try again.");
+        return;
+      }
       if ("error" in result) {
         if (result.existingClientId) {
           const known = companies.find((c) => c.id === result.existingClientId);
@@ -240,9 +269,10 @@ function NewLeadForm({
               onNew={chooseNew}
               onClear={clearCompany}
               invalid={mode !== "new" && !!companyNameError}
+              errorId="new-lead-company-error"
             />
             {mode !== "new" && companyNameError && (
-              <p className="text-sm text-destructive">{companyNameError}</p>
+              <p id="new-lead-company-error" className="text-sm text-destructive">{companyNameError}</p>
             )}
           </div>
 
@@ -484,6 +514,7 @@ function CompanyCombobox({
   onNew,
   onClear,
   invalid,
+  errorId,
 }: {
   companies: CompanyOption[];
   mode: CompanyMode;
@@ -492,6 +523,7 @@ function CompanyCombobox({
   onNew: (prefillName: string) => void;
   onClear: () => void;
   invalid: boolean;
+  errorId: string;
 }) {
   const selectedItem = useMemo<Item | null>(() => {
     if (mode === "new") return { value: NEW_COMPANY, name: "New company", reg_code: null, isNew: true };
@@ -540,12 +572,13 @@ function CompanyCombobox({
       filter={null}
     >
       <Combobox.InputGroup
-        aria-invalid={invalid || undefined}
-        className="flex h-9 w-full items-center gap-2 rounded-lg border border-input bg-background py-2 pr-1.5 pl-2.5 text-sm transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30"
+        className="flex h-9 w-full items-center gap-2 rounded-lg border border-input bg-background py-2 pr-1.5 pl-2.5 text-sm transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 has-aria-invalid:border-destructive has-aria-invalid:ring-destructive/20 dark:bg-input/30"
       >
         <Building2Icon className="size-4 shrink-0 text-muted-foreground" />
         <Combobox.Input
           aria-label="Company"
+          aria-invalid={invalid || undefined}
+          aria-describedby={invalid ? errorId : undefined}
           autoFocus={mode === "none"}
           placeholder="Search by name or registry code"
           className="h-full w-full border-0 bg-transparent p-0 text-sm outline-none placeholder:text-muted-foreground"
