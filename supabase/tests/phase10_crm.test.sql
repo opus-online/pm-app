@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(33);
+select plan(37);
 
 -- fixtures: admin, sales (sal), second sales user (sal2), pm (no sales)
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, encrypted_password, created_at, updated_at) values
@@ -102,6 +102,15 @@ select ok((public.create_lead(null,
   '{"first_name":"Jaan","last_name":"Tamm"}'::jsonb) ->> 'deal_id') is not null, 'create_lead creates company+deal+contact');
 set local "request.jwt.claims" to '{"sub":"ac000000-0000-4000-8000-000000000003","role":"authenticated"}';
 select throws_ok($$ select public.create_lead(null,'{"name":"X"}'::jsonb,'{"title":"Y","owner_id":"ac000000-0000-4000-8000-000000000003"}'::jsonb,null) $$, null, null, 'create_lead requires manage_sales');
+reset role;
+
+-- sales_people(): definer directory of deal owners / sales users, gated on view_sales
+select is(has_function_privilege('anon', 'public.sales_people()', 'EXECUTE'), false, 'anon cannot execute sales_people()');
+set local role authenticated;
+select is((select count(*)::int from public.sales_people()), 0, 'non-sales user gets no sales people');
+set local "request.jwt.claims" to '{"sub":"ac000000-0000-4000-8000-000000000004","role":"authenticated"}';
+select is((select name from public.sales_people() where id='ac000000-0000-4000-8000-000000000002'), 'Sal', 'sales user resolves another owner''s name');
+select ok(not exists(select 1 from public.sales_people() where id='ac000000-0000-4000-8000-000000000003'), 'a non-sales PM is not in the sales directory');
 reset role;
 
 select * from finish();

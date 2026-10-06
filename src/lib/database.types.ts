@@ -2188,6 +2188,15 @@ export type Database = {
         }[]
       }
       revoke_session: { Args: { session_id: string }; Returns: boolean }
+      sales_people: {
+        Args: never
+        Returns: {
+          assignable: boolean
+          avatar_url: string
+          id: string
+          name: string
+        }[]
+      }
       set_person_allocation: {
         Args: { p_allocation: number; p_project: string; p_user_id: string }
         Returns: undefined

@@ -22,5 +22,5 @@ export function chipDate(dateISO: string, days: number): string {
   if (days === 0) return "Today";
   if (days === 1) return "Tomorrow";
   // Day-first, no year -- the timeline never shows anything more than ~30 days out.
-  return new Date(`${dateISO}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return new Date(`${dateISO}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 }
