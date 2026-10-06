@@ -6,7 +6,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { saveOfferAction } from "@/app/actions/sales";
+import { parseAmountInput } from "@/lib/sales/money-input";
 import { OFFER_STATUSES, type OfferStatus } from "@/lib/sales/types";
+import { appDayKey } from "@/lib/time-zone";
 import { offerSchema, type OfferInput } from "@/lib/validation/sales";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -18,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { OFFER_STATUS_DOT, OFFER_STATUS_LABEL } from "../../stage";
 import type { OfferView } from "../../types";
+import { useUnstickRefresh } from "./use-unstick-refresh";
 
 /** Inputs stay controlled strings ("" = not set); the schema turns blanks into nulls. */
 type OfferForm = {
@@ -30,22 +33,25 @@ type OfferForm = {
   note: string;
 };
 
-/** offerSchema, but a blank amount is an error (not a silent €0) and "36 000,50" is accepted. */
+/** offerSchema, but the amount is typed text: blank is an error (not a silent €0), "36 000,50" is
+ * accepted and "36,000" is rejected rather than guessed. */
 const offerFormSchema = offerSchema.extend({
-  amount: z.preprocess(
-    (v) => (typeof v === "string" ? (v.replace(/[\s €]/g, "").replace(",", ".") || undefined) : v),
-    z.coerce
-      .number({ error: "Enter an amount" })
-      .min(0, "Amount can't be negative")
-      .max(99_999_999, "Amount is too large")
-  ),
+  amount: z
+    .string()
+    .transform((raw, ctx) => {
+      const amount = parseAmountInput(raw);
+      if (amount === "ambiguous") {
+        ctx.addIssue({ code: "custom", message: "Write 36000 or 36 000" });
+        return z.NEVER;
+      }
+      if (amount === null || amount === "invalid") {
+        ctx.addIssue({ code: "custom", message: "Enter an amount" });
+        return z.NEVER;
+      }
+      return amount;
+    })
+    .pipe(z.number().min(0, "Amount can't be negative").max(99_999_999, "Amount is too large")),
 });
-
-function todayIso() {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 
 /** Add (no `offer`) or edit. Always controlled: "+ Add offer" and the row ⋯ menu both lift its
  * state into the deal sheet, since a DropdownMenuItem unmounts with its menu on click. */
@@ -94,6 +100,7 @@ function OfferFormBody({
   onDone: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
+  useUnstickRefresh(isPending);
   const [serverError, setServerError] = useState<string | null>(null);
   const form = useForm<OfferForm>({
     resolver: zodResolver(offerFormSchema) as unknown as Resolver<OfferForm>,
@@ -181,7 +188,7 @@ function OfferFormBody({
                     if (!v) return;
                     field.onChange(v);
                     // Marking it sent without a date most likely means "sent today".
-                    if (v === "sent" && !form.getValues("sent_on")) form.setValue("sent_on", todayIso());
+                    if (v === "sent" && !form.getValues("sent_on")) form.setValue("sent_on", appDayKey(Date.now()));
                   }}
                 >
                   <SelectTrigger className="w-full">

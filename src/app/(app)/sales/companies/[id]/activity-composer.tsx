@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import type { ContactView, DealView } from "../../types";
+import { useUnstickRefresh } from "./use-unstick-refresh";
 import { KIND_META } from "./activity-kind";
 import { useHydrated } from "./use-hydrated";
 
@@ -39,6 +40,7 @@ export function ActivityComposer({
   const ids = useId();
   const hydrated = useHydrated();
   const [isPending, startTransition] = useTransition();
+  useUnstickRefresh(isPending);
   const [kind, setKind] = useState<LoggableKind>("call");
   const [body, setBody] = useState("");
   const [contactId, setContactId] = useState(NONE);

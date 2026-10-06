@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { ContactView } from "../../types";
+import { useUnstickRefresh } from "./use-unstick-refresh";
 
 /** Inputs stay controlled strings ("" = not set); contactSchema turns blanks into nulls. */
 type ContactForm = {
@@ -64,6 +65,7 @@ function ContactFormBody({
   onDone: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
+  useUnstickRefresh(isPending);
   const [serverError, setServerError] = useState<string | null>(null);
   const form = useForm<ContactForm>({
     resolver: zodResolver(contactSchema) as unknown as Resolver<ContactForm>,

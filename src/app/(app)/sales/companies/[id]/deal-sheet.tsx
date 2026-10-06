@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useTransition } from "react";
+import { useId, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowUpRight, Building2, ExternalLink, MoreHorizontal, PartyPopper, PlusIcon } from "lucide-react";
@@ -39,6 +39,7 @@ import { OFFER_STATUS_DOT, OFFER_STATUS_LABEL, SOURCE_LABEL, STAGE_DOT, STAGE_LA
 import type { ActivityView, CompanyView, DealView, OfferView, SalesOwnerOption } from "../../types";
 import { ActivityTimeline } from "./activity-timeline";
 import { OfferFormDialog } from "./offer-form-dialog";
+import { useUnstickRefresh } from "./use-unstick-refresh";
 
 /** Options for the New project dialog -- present only when the viewer may create projects and a
  * won deal still lacks one (loaded by the company page). */
@@ -454,19 +455,6 @@ function DealSheetBody({
       )}
     </>
   );
-}
-
-/** Next 16.2 can leave a server action's revalidated render suspended -- never committed -- while
- * the URL carries a search param (?deal= here): the page stays stale and the transition pending
- * until some unrelated update arrives (any click does it). While our save transition is still
- * pending, a periodic no-op update gives React that nudge, so the fresh render lands on its own. */
-function useUnstickRefresh(pending: boolean) {
-  const [, nudge] = useState(0);
-  useEffect(() => {
-    if (!pending) return;
-    const id = setInterval(() => nudge((n) => n + 1), 300);
-    return () => clearInterval(id);
-  }, [pending]);
 }
 
 function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: React.ReactNode }) {

@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { EDIT_ACTION_CLASS } from "@/lib/action-styles";
 import type { CompanyView } from "../../types";
+import { useUnstickRefresh } from "./use-unstick-refresh";
 
 /** Inputs stay controlled strings; companySchema turns blanks into nulls on submit. */
 type CompanyForm = { name: string; reg_code: string; phone: string; email: string; website: string; notes: string };
@@ -40,6 +41,7 @@ export function CompanyFormDialog({ company }: { company: CompanyView }) {
 
 function CompanyFormBody({ company, onDone }: { company: CompanyView; onDone: () => void }) {
   const [isPending, startTransition] = useTransition();
+  useUnstickRefresh(isPending);
   const [serverError, setServerError] = useState<string | null>(null);
   const [duplicate, setDuplicate] = useState<{ id: string; name: string } | null>(null);
   const form = useForm<CompanyForm>({
