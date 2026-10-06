@@ -44,8 +44,11 @@ const nullableGender = z.preprocess(
 /** One repeatable contact row in the client form -> one client_contacts row. The form collects
  * first_name/last_name (gender + description are edited only in the Sales contact dialog, not
  * here -- see client-form.tsx); `name` is derived by a DB trigger from first/last and stays
- * optional here purely for backward compatibility with any pre-split caller. */
+ * optional here purely for backward compatibility with any pre-split caller. `id` rides along
+ * (set for an existing row, absent for a new one) so upsertClientAction can update/insert/delete
+ * by id instead of delete+reinserting every row on every save -- see that function for why. */
 export const clientContactSchema = z.object({
+  id: z.uuid().optional(),
   name: z.string().trim().max(200).optional(),
   first_name: z.string().trim().min(1, "First name is required").max(100),
   last_name: nullableText(100),

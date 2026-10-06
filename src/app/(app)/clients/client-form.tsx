@@ -24,6 +24,17 @@ const BLANK_CONTACT: ClientContactInput = {
   email: null, phone: null, role: null, is_primary: false,
 };
 
+/** A contact that predates the first/last split only carries `name` -- split it the same way
+ * the migration backfill did (split_part(name, ' ', 1) / the remainder), so an old row still
+ * shows something sensible in the First name / Last name fields instead of dumping the whole
+ * name into First name. */
+function splitLegacyName(name: string): { first_name: string; last_name: string | null } {
+  const i = name.indexOf(" ");
+  if (i === -1) return { first_name: name, last_name: null };
+  const rest = name.slice(i + 1).trim();
+  return { first_name: name.slice(0, i), last_name: rest === "" ? null : rest };
+}
+
 function toDefaults(client?: ClientRow, contacts?: ClientContactRow[]): ClientInput {
   return {
     name: client?.name ?? "",
@@ -33,11 +44,14 @@ function toDefaults(client?: ClientRow, contacts?: ClientContactRow[]): ClientIn
     notes: client?.notes ?? null,
     contacts: contacts?.length
       ? contacts.map((c) => ({
+          // `id` rides along as a hidden value (no field renders it) so upsertClientAction can
+          // update this row in place instead of deleting and reinserting it -- a fresh id on
+          // every save was silently orphaning crm_activities.contact_id /
+          // projects.client_contact_id, which point at a specific row.
+          id: c.id,
+          ...(c.first_name ? { first_name: c.first_name, last_name: c.last_name } : splitLegacyName(c.name)),
           // gender/description have no field in this form (they're edited only in the Sales
-          // contact dialog) -- carried through untouched so re-saving a client here never wipes
-          // them, since upsertClientAction deletes and reinserts every contact row.
-          first_name: c.first_name ?? c.name,
-          last_name: c.last_name,
+          // contact dialog) -- carried through untouched in case this row ever needs reinserting.
           gender: c.gender,
           description: c.description,
           email: c.email,
@@ -98,7 +112,14 @@ export function ClientForm({
     setServerError(null);
     const kept = values.contacts.filter((c) => !isBlankContact(c));
     startTransition(async () => {
-      const result = await upsertClientAction({ ...values, contacts: kept }, client?.id);
+      let result: Awaited<ReturnType<typeof upsertClientAction>>;
+      try {
+        result = await upsertClientAction({ ...values, contacts: kept }, client?.id);
+      } catch {
+        // A thrown action (network, permission) must not hit the error boundary and lose the form.
+        setServerError("Save failed. Try again.");
+        return;
+      }
       if ("error" in result) setServerError(result.error);
       else onSuccess({ id: result.id, name: result.name });
     });

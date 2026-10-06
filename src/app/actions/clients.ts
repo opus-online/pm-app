@@ -56,17 +56,74 @@ export async function upsertClientAction(
       : { error: "Save failed. Try again." };
   }
 
-  // Replace-all write for the contact rows: tiny lists, and it keeps removals/reorders/primary
-  // flips one code path. RLS ("manage client_contacts" = manage_clients) is the real backstop.
-  // gender/description round-trip through the form as hidden passthrough values (see
-  // client-form.tsx toDefaults) even though this form has no UI for them, so editing a contact
-  // here never wipes what the Sales contact dialog set.
-  const { error: clearError } = await supabase
-    .from("client_contacts")
-    .delete()
-    .eq("client_id", client.id);
-  if (clearError) return { error: "Save failed. Try again." };
-  if (contacts.length > 0) {
+  if (clientId) {
+    // Id-matched sync, NOT delete+reinsert: a fresh row id on every save would silently null out
+    // crm_activities.contact_id and projects.client_contact_id, which point at a specific
+    // client_contacts row (bug found in review -- the old code deleted and reinserted every
+    // contact on every client save, new ids and all). A row with a submitted `id` is updated in
+    // place; a row with no `id` is a new contact and gets inserted; any existing row whose id
+    // was NOT resubmitted (the user removed it in the form) gets deleted. RLS ("manage
+    // client_contacts" = manage_clients) is the real backstop; `.eq("client_id", client.id)` on
+    // the update additionally guards against an id for a *different* client's contact being
+    // submitted.
+    const existing = contacts.filter((c): c is typeof c & { id: string } => !!c.id);
+    const toInsert = contacts.filter((c) => !c.id);
+    const submittedIds = new Set(existing.map((c) => c.id));
+
+    const { data: beforeRows, error: beforeError } = await supabase
+      .from("client_contacts")
+      .select("id")
+      .eq("client_id", client.id);
+    if (beforeError) return { error: "Save failed. Try again." };
+    const toDeleteIds = (beforeRows ?? []).map((r) => r.id).filter((id) => !submittedIds.has(id));
+
+    // Only the fields this form edits -- gender/description are deliberately left out of the
+    // update payload (unlike the insert below) so a concurrent edit via the Sales contact dialog
+    // isn't overwritten by a client-form save that never touched those fields.
+    for (const c of existing) {
+      const { error: updateError } = await supabase
+        .from("client_contacts")
+        .update({
+          first_name: c.first_name,
+          last_name: c.last_name,
+          email: c.email,
+          phone: c.phone,
+          role: c.role,
+          is_primary: c.is_primary,
+        })
+        .eq("id", c.id)
+        .eq("client_id", client.id);
+      if (updateError) return { error: "Save failed. Try again." };
+    }
+
+    if (toInsert.length > 0) {
+      const { error: insertError } = await supabase.from("client_contacts").insert(
+        toInsert.map((c) => ({
+          client_id: client.id,
+          name: "", // trigger derives this from first_name/last_name
+          first_name: c.first_name,
+          last_name: c.last_name,
+          gender: c.gender,
+          description: c.description,
+          email: c.email,
+          phone: c.phone,
+          role: c.role,
+          is_primary: c.is_primary,
+        }))
+      );
+      if (insertError) return { error: "Save failed. Try again." };
+    }
+
+    if (toDeleteIds.length > 0) {
+      const { error: deleteError } = await supabase
+        .from("client_contacts")
+        .delete()
+        .eq("client_id", client.id)
+        .in("id", toDeleteIds);
+      if (deleteError) return { error: "Save failed. Try again." };
+    }
+  } else if (contacts.length > 0) {
+    // Create path: no existing rows to reconcile against, so every submitted contact is new.
     const { error: contactsError } = await supabase.from("client_contacts").insert(
       contacts.map((c) => ({
         client_id: client.id,

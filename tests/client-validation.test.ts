@@ -127,4 +127,17 @@ describe("clientContactSchema", () => {
   it("rejects an invalid gender", () => {
     expect(clientContactSchema.safeParse({ first_name: "X", gender: "unicorn" }).success).toBe(false);
   });
+
+  it("accepts an omitted id (new contact) and a valid uuid id (existing contact)", () => {
+    expect(clientContactSchema.safeParse({ first_name: "New" }).success).toBe(true);
+    const parsed = clientContactSchema.parse({
+      id: "90000001-0000-4000-8000-000000000001",
+      first_name: "Existing",
+    });
+    expect(parsed.id).toBe("90000001-0000-4000-8000-000000000001");
+  });
+
+  it("rejects a non-uuid id", () => {
+    expect(clientContactSchema.safeParse({ id: "not-a-uuid", first_name: "X" }).success).toBe(false);
+  });
 });
