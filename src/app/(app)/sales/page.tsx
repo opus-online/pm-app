@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { pipelineTotals } from "@/lib/sales/pipeline";
 import { loadPipeline } from "./load-pipeline";
 import { formatEur } from "./money";
+import { PipelineBoard } from "./pipeline-board";
 import { PipelineKpis } from "./pipeline-kpis";
 import { PipelineTable } from "./pipeline-table";
 import { ViewToggle, type PipelineView } from "./view-toggle";
@@ -48,8 +49,11 @@ export default async function SalesPage({
 
       <PipelineKpis rows={rows} />
 
-      {/* Board view (PipelineBoard) lands in Task 8; until then both views render the list. */}
-      <PipelineTable rows={rows} canManage={canManage === true} />
+      {view === "board" ? (
+        <PipelineBoard rows={rows} canManage={canManage === true} />
+      ) : (
+        <PipelineTable rows={rows} canManage={canManage === true} />
+      )}
     </div>
   );
 }
