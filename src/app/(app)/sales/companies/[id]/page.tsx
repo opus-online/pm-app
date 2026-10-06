@@ -8,10 +8,14 @@ import {
 import { getSalesAccess } from "../../access";
 import { loadCompanyOptions, loadSalesOwners, loadSalesPeople } from "../../load-pipeline";
 import type { ActivityView, CompanyView, ContactView, DealView } from "../../types";
+import type {
+  ClientContactOption, ClientOption, PmOption,
+} from "../../../projects/new/project-create-fields";
 import { ActivityComposer } from "./activity-composer";
 import { ActivityTimeline } from "./activity-timeline";
 import { CompanyHeader } from "./company-header";
 import { ContactsCard } from "./contacts-card";
+import { DealSheet, type ProjectDialogData } from "./deal-sheet";
 import { DealsCard } from "./deals-card";
 
 // Company workspace: who the company is, its deals and contacts on the left, and everything that
@@ -135,9 +139,13 @@ export default async function CompanyPage({
 
   // ?deal= that doesn't belong to this company is ignored rather than trusted.
   const activeDeal = deals.find((d) => d.id === dealParam) ?? null;
-  // Task 11 seam: <DealSheet deal={activeDeal} … /> mounts here, opened by ?deal= (closing it
-  // drops the param). ProjectCreateDialog data loads alongside it, only when canManage and a won
-  // deal without a project exists.
+
+  // "Create project" options (same data as the Projects page dialog), only when someone could
+  // actually use them: a manager looking at a won deal that has no project yet, who may create
+  // projects at all (the sales role alone can't).
+  const projectDialogData = canManage && deals.some((d) => d.stage === "won" && !d.project_id)
+    ? await loadProjectDialogData(supabase, current)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -181,6 +189,46 @@ export default async function CompanyPage({
           <ActivityTimeline activities={activities} canManage={canManage} />
         </div>
       </div>
+
+      <DealSheet
+        deal={activeDeal}
+        company={company}
+        activities={activities}
+        owners={owners}
+        canManage={canManage}
+        projectDialogData={projectDialogData}
+      />
     </div>
   );
+}
+
+async function loadProjectDialogData(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  current: NonNullable<Awaited<ReturnType<typeof getSalesAccess>>>["current"]
+): Promise<ProjectDialogData | null> {
+  const { data: canCreate } = await supabase.rpc("has_permission", {
+    uid: current.user.id,
+    perm: "create_project",
+  });
+  if (canCreate !== true) return null;
+
+  const [clientsRes, contactsRes, pmsRes] = await Promise.all([
+    supabase.from("clients").select("id, name").order("name"),
+    supabase.from("client_contacts").select("id, client_id, name, email").order("name"),
+    supabase.rpc("pm_options"),
+  ]);
+  if (clientsRes.error || contactsRes.error || pmsRes.error) throw new Error("Failed to load project options");
+
+  const clients: ClientOption[] = clientsRes.data.map((c) => ({ id: c.id, name: c.name }));
+  const contacts: ClientContactOption[] = contactsRes.data.map((c) => ({
+    id: c.id,
+    client_id: c.client_id,
+    name: c.name,
+    email: c.email,
+  }));
+  const pms: PmOption[] = (pmsRes.data ?? []).map((p) => ({ user_id: p.user_id, full_name: p.full_name }));
+  if (!pms.some((pm) => pm.user_id === current.user.id)) {
+    pms.unshift({ user_id: current.user.id, full_name: current.profile.full_name ?? current.profile.email });
+  }
+  return { clients, contacts, pms, currentUserId: current.user.id };
 }

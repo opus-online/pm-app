@@ -1,4 +1,4 @@
-import type { DealSource, DealStage } from "@/lib/sales/types";
+import type { DealSource, DealStage, OfferStatus } from "@/lib/sales/types";
 
 export const STAGE_LABEL: Record<DealStage, string> = {
   new: "New",
@@ -25,4 +25,18 @@ export const SOURCE_LABEL: Record<DealSource, string> = {
   existing_client: "Existing client",
   event: "Event",
   other: "Other",
+};
+
+export const OFFER_STATUS_LABEL: Record<OfferStatus, string> = {
+  draft: "Draft",
+  sent: "Sent",
+  accepted: "Accepted",
+  rejected: "Rejected",
+};
+
+export const OFFER_STATUS_DOT: Record<OfferStatus, string> = {
+  draft: "bg-slate-400",
+  sent: "bg-violet-500",
+  accepted: "bg-emerald-500",
+  rejected: "bg-rose-500",
 };

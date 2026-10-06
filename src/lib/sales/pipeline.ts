@@ -3,12 +3,16 @@ import { followUpDays } from "./urgency";
 
 const offerTime = (o: OfferLite) => o.sent_on ?? o.created_at.slice(0, 10);
 
-/** Most recent offer by sent_on, falling back to created_at when unsent; null with no offers. */
-export function latestOffer(offers: OfferLite[]): OfferLite | null {
-  if (offers.length === 0) return null;
+/** Newest first by sent_on, falling back to created_at when unsent (a copy; input untouched). */
+export function offersNewestFirst<T extends OfferLite>(offers: T[]): T[] {
   return [...offers].sort((a, b) =>
     offerTime(a) < offerTime(b) ? 1 : offerTime(a) > offerTime(b) ? -1 : b.created_at.localeCompare(a.created_at)
-  )[0];
+  );
+}
+
+/** Most recent offer by sent_on, falling back to created_at when unsent; null with no offers. */
+export function latestOffer<T extends OfferLite>(offers: T[]): T | null {
+  return offersNewestFirst(offers)[0] ?? null;
 }
 
 const value = (d: DealLite) => latestOffer(d.offers)?.amount ?? 0;
