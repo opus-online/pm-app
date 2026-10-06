@@ -61,9 +61,12 @@ export default async function CompanyPage({
     canManage ? loadSalesOwners() : Promise.resolve([]),
     canManage ? loadCompanyOptions() : Promise.resolve([]),
   ]);
+  // A failed read must not masquerade as "not found", an empty list or a wrong Prospect label.
+  if (clientRes.error || kindRes.error || contactsRes.error || dealsRes.error || activitiesRes.error) {
+    throw new Error("Failed to load the company");
+  }
   const client = clientRes.data;
   if (!client) notFound();
-  if (dealsRes.error || activitiesRes.error) throw new Error("Failed to load the company");
 
   const company: CompanyView = {
     id: client.id,

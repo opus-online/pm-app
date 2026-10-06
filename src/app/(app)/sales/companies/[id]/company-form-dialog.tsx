@@ -67,7 +67,7 @@ function CompanyFormBody({ company, onDone }: { company: CompanyView; onDone: ()
       }
       if ("error" in result) {
         if (result.existingClientId) {
-          setDuplicate({ id: result.existingClientId, name: result.error.replace(/^Already exists:\s*/, "") });
+          setDuplicate({ id: result.existingClientId, name: result.existingClientName ?? "another company" });
         } else {
           setServerError(result.error);
         }

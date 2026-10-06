@@ -10,31 +10,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { appClockTime, appDayKey } from "@/lib/time-zone";
 import { cn } from "@/lib/utils";
 import { formatShortDate } from "../../../people/types";
 import type { ActivityView } from "../../types";
 import { KIND_META } from "./activity-kind";
-import { useHydrated } from "./use-hydrated";
 
 const DAY_MS = 86_400_000;
-
-/** Day key + clock time. The server (and the hydration render) use UTC; after hydration the
- * viewer's own time zone takes over, so "14:05" means their 14:05 and days split at their
- * midnight. */
-function dayKey(iso: string, local: boolean) {
-  const d = new Date(iso);
-  if (!local) return d.toISOString().slice(0, 10);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function timeOf(iso: string, local: boolean) {
-  return new Date(iso).toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: local ? undefined : "UTC",
-  });
-}
 
 function dayLabel(key: string, todayKey: string, yesterdayKey: string) {
   if (key === todayKey) return "Today";
@@ -56,17 +38,17 @@ export function ActivityTimeline({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const local = useHydrated();
   const [deleting, setDeleting] = useState<ActivityView | null>(null);
 
   // Captured once per mount: "Today" is relative to when the page was opened.
   const [now] = useState(() => Date.now());
-  const todayKey = dayKey(new Date(now).toISOString(), local);
-  const yesterdayKey = dayKey(new Date(now - DAY_MS).toISOString(), local);
+  // Days split at Estonian midnight on server and client alike (no post-hydration jump).
+  const todayKey = appDayKey(now);
+  const yesterdayKey = appDayKey(now - DAY_MS);
 
   const groups: { key: string; items: ActivityView[] }[] = [];
   for (const a of activities) {
-    const key = dayKey(a.occurred_at, local);
+    const key = appDayKey(a.occurred_at);
     const last = groups.at(-1);
     if (last?.key === key) last.items.push(a);
     else groups.push({ key, items: [a] });
@@ -97,7 +79,6 @@ export function ActivityTimeline({
                     <TimelineItem
                       key={a.id}
                       activity={a}
-                      local={local}
                       last={i === g.items.length - 1}
                       canDelete={canManage && a.is_mine && a.kind !== "system"}
                       onDelete={() => setDeleting(a)}
@@ -139,14 +120,12 @@ export function ActivityTimeline({
 
 function TimelineItem({
   activity: a,
-  local,
   last,
   canDelete,
   onDelete,
   onOpenDeal,
 }: {
   activity: ActivityView;
-  local: boolean;
   last: boolean;
   canDelete: boolean;
   onDelete: () => void;
@@ -157,7 +136,7 @@ function TimelineItem({
 
   const meta = [
     a.actor?.name ?? null,
-    <span key="t" className="tabular-nums">{timeOf(a.occurred_at, local)}</span>,
+    <span key="t" className="tabular-nums">{appClockTime(a.occurred_at)}</span>,
     a.contact_name,
   ].filter(Boolean);
 

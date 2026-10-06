@@ -89,11 +89,11 @@ export function ActivityComposer({
       }
       if ("error" in result) {
         toast.error(result.error);
-        // "Activity logged, but the follow-up…" -- the entry itself is saved, so don't re-log it.
-        if (result.error.startsWith("Activity logged")) reset();
         return;
       }
-      toast.success(`${KIND_META[kind].label} logged`);
+      // Partial success: the entry is saved (so reset), only the follow-up date failed.
+      if (result.warning) toast.warning(result.warning);
+      else toast.success(`${KIND_META[kind].label} logged`);
       reset();
     });
   }

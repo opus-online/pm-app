@@ -23,6 +23,9 @@ import {
 } from "@/lib/validation/sales";
 
 type Result = { error: string } | { success: true };
+/** A duplicate reg code points at the company that already holds it -- callers read the
+ * structured fields, never the message text. */
+type DuplicateError = { error: string; existingClientId?: string; existingClientName?: string };
 
 const isUuid = (v: unknown) => z.uuid().safeParse(v).success;
 
@@ -51,7 +54,7 @@ export async function findCompanyByRegCodeAction(regCode: string): Promise<{ id:
 
 export async function createLeadAction(
   input: NewLeadInput
-): Promise<{ error: string; existingClientId?: string } | { success: true; clientId: string; dealId: string }> {
+): Promise<DuplicateError | { success: true; clientId: string; dealId: string }> {
   const current = await requirePermission("manage_sales");
 
   // Ruling: if attaching to an existing company, stale new-company fields (e.g. left over from a
@@ -65,7 +68,7 @@ export async function createLeadAction(
 
   if (!client_id) {
     const dup = await existingByRegCode(supabase, company?.reg_code ?? null);
-    if (dup) return { error: `Already exists: ${dup.name}`, existingClientId: dup.id };
+    if (dup) return { error: `Already exists: ${dup.name}`, existingClientId: dup.id, existingClientName: dup.name };
   }
 
   const { data, error } = await supabase.rpc("create_lead", {
@@ -221,7 +224,9 @@ export async function deleteOfferAction(offerId: string): Promise<Result> {
   return { success: true as const };
 }
 
-export async function logActivityAction(input: ActivityInput): Promise<Result> {
+export async function logActivityAction(
+  input: ActivityInput
+): Promise<{ error: string } | { success: true; warning?: string }> {
   const current = await requirePermission("manage_sales");
 
   const parsed = activitySchema.safeParse(input);
@@ -271,7 +276,8 @@ export async function logActivityAction(input: ActivityInput): Promise<Result> {
       .from("deals")
       .update({ next_follow_up_on: set_follow_up_on })
       .eq("id", deal_id);
-    if (followUpError) return { error: "Activity logged, but the follow-up date could not be saved." };
+    // Partial success: the entry is saved, so the caller must not offer to re-log it.
+    if (followUpError) return { success: true as const, warning: "Activity logged, but the follow-up date could not be saved." };
   }
 
   return { success: true as const };
@@ -303,7 +309,7 @@ export async function deleteActivityAction(activityId: string): Promise<Result> 
 export async function saveCompanyAction(
   input: CompanyInput,
   clientId?: string | null
-): Promise<{ error: string; existingClientId?: string } | { success: true; id: string }> {
+): Promise<DuplicateError | { success: true; id: string }> {
   if (clientId && !isUuid(clientId)) return { error: "Invalid company." };
   const current = await requirePermission("manage_sales");
 
@@ -312,7 +318,7 @@ export async function saveCompanyAction(
 
   const supabase = await createClient();
   const dup = await existingByRegCode(supabase, parsed.data.reg_code, clientId);
-  if (dup) return { error: `Already exists: ${dup.name}`, existingClientId: dup.id };
+  if (dup) return { error: `Already exists: ${dup.name}`, existingClientId: dup.id, existingClientName: dup.name };
 
   const write = clientId
     ? supabase.from("clients").update(parsed.data).eq("id", clientId)

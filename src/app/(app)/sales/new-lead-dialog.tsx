@@ -243,7 +243,7 @@ function NewLeadForm({
           const known = companies.find((c) => c.id === result.existingClientId);
           setHit({
             id: result.existingClientId,
-            name: known?.name ?? result.error.replace(/^Already exists:\s*/, ""),
+            name: known?.name ?? result.existingClientName ?? "another company",
           });
         } else {
           setServerError(result.error);
