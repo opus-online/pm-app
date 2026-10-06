@@ -1,4 +1,4 @@
-import type { DealSource, DealStage, OfferLite } from "@/lib/sales/types";
+import type { ActivityKind, DealSource, DealStage, OfferLite, OfferStatus } from "@/lib/sales/types";
 
 // Allowlisted shapes sent to client components -- built field by field in load-pipeline.ts,
 // never by spreading DB rows.
@@ -20,3 +20,64 @@ export type PipelineRow = {
 
 export type SalesOwnerOption = { id: string; name: string; avatar_url: string | null };
 export type CompanyOption = { id: string; name: string; reg_code: string | null };
+
+// ---- Company workspace (sales/companies/[id]) -- same allowlist rule: built field by field in
+// that page, never by spreading DB rows. ----
+export type CompanyView = {
+  id: string;
+  name: string;
+  reg_code: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  notes: string | null;
+  kind: "prospect" | "client";
+};
+
+export type ContactView = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  name: string;
+  gender: "female" | "male" | "other" | null;
+  email: string | null;
+  phone: string | null;
+  role: string | null;
+  description: string | null;
+};
+
+export type OfferView = {
+  id: string;
+  title: string;
+  amount: number;
+  status: OfferStatus;
+  sent_on: string | null;
+  valid_until: string | null;
+  link_url: string | null;
+  note: string | null;
+  created_at: string;
+};
+
+export type DealView = {
+  id: string;
+  title: string;
+  stage: DealStage;
+  source: DealSource;
+  owner: { id: string; name: string; avatar_url: string | null };
+  next_follow_up_on: string | null;
+  lost_reason: string | null;
+  project_id: string | null;
+  offers: OfferView[];
+};
+
+export type ActivityView = {
+  id: string;
+  kind: ActivityKind;
+  body: string;
+  occurred_at: string;
+  deal_id: string | null;
+  deal_title: string | null;
+  contact_name: string | null;
+  actor: { id: string; name: string; avatar_url: string | null } | null;
+  is_mine: boolean;
+};

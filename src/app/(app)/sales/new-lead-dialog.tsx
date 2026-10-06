@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition, type ReactElement } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm, useWatch, type Resolver } from "react-hook-form";
@@ -65,22 +65,28 @@ export function NewLeadDialog({
   owners,
   currentUserId,
   defaultClientId = null,
+  noun = "lead",
+  trigger = <Button size="sm" />,
 }: {
   companies: CompanyOption[];
   owners: SalesOwnerOption[];
   currentUserId: string;
   defaultClientId?: string | null;
+  /** "deal" when launched from a company page: "New deal" / "Create deal" / "Deal created". */
+  noun?: "lead" | "deal";
+  /** Trigger element (base-ui `render`), for callers that need a quieter button. */
+  trigger?: ReactElement;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" />}>
+      <DialogTrigger render={trigger}>
         <Plus />
-        New lead
+        New {noun}
       </DialogTrigger>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>New lead</DialogTitle>
+          <DialogTitle>New {noun}</DialogTitle>
         </DialogHeader>
         {/* Mounted only while open, so every open starts from a clean form. */}
         {open && (
@@ -89,6 +95,7 @@ export function NewLeadDialog({
             owners={owners}
             currentUserId={currentUserId}
             defaultClientId={defaultClientId}
+            noun={noun}
             onDone={() => setOpen(false)}
           />
         )}
@@ -102,12 +109,14 @@ function NewLeadForm({
   owners,
   currentUserId,
   defaultClientId,
+  noun,
   onDone,
 }: {
   companies: CompanyOption[];
   owners: SalesOwnerOption[];
   currentUserId: string;
   defaultClientId: string | null;
+  noun: "lead" | "deal";
   onDone: () => void;
 }) {
   const router = useRouter();
@@ -242,7 +251,7 @@ function NewLeadForm({
         return;
       }
       onDone();
-      toast.success("Lead created");
+      toast.success(noun === "deal" ? "Deal created" : "Lead created");
       router.push(`/sales/companies/${result.clientId}?deal=${result.dealId}`);
     });
   }
@@ -425,7 +434,7 @@ function NewLeadForm({
         {/* -bottom-4 pins it to the dialog's padding edge so nothing scrolls visibly beneath it. */}
         <DialogFooter className="-bottom-4">
           <Button type="submit" disabled={isPending || blocked}>
-            {isPending ? "Creating…" : "Create lead"}
+            {isPending ? "Creating…" : `Create ${noun}`}
           </Button>
         </DialogFooter>
       </form>

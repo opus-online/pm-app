@@ -132,7 +132,7 @@ export function PipelineTable({ rows }: { rows: PipelineRow[]; canManage: boolea
                   onClick={(e) => {
                     // Whole row opens the deal on its company page -- but never when the click
                     // landed on a real control inside the row.
-                    if ((e.target as HTMLElement).closest("a, button, [role='menuitem']")) return;
+                    if ((e.target as HTMLElement).closest("a, button, [role='menuitem'], [data-slot='tooltip-trigger']")) return;
                     router.push(`/sales/companies/${row.client.id}?deal=${row.id}`);
                   }}
                 >

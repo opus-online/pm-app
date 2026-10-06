@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { getCurrentUser } from "@/lib/auth/session";
 import { pipelineTotals } from "@/lib/sales/pipeline";
+import { getSalesAccess } from "./access";
 import { loadCompanyOptions, loadPipeline, loadSalesOwners } from "./load-pipeline";
 import { NewLeadDialog } from "./new-lead-dialog";
 import { formatEur } from "./money";
@@ -15,20 +14,15 @@ export default async function SalesPage({
 }: {
   searchParams: Promise<{ view?: string }>;
 }) {
-  const current = await getCurrentUser();
-  if (!current) notFound();
-  const supabase = await createClient();
-  // Page gate mirrors the nav gate; the data itself is RLS-scoped on view_sales and every write
-  // re-checks manage_sales server-side in actions/sales.ts.
-  const [{ data: canView }, { data: canManage }] = await Promise.all([
-    supabase.rpc("has_permission", { uid: current.user.id, perm: "view_sales" }),
-    supabase.rpc("has_permission", { uid: current.user.id, perm: "manage_sales" }),
-  ]);
-  if (canView !== true) notFound();
+  // sales/layout.tsx already 404s without view_sales; re-checked here (request-cached, free) as
+  // defense in depth. Data is RLS-scoped on view_sales and every write re-checks manage_sales.
+  const access = await getSalesAccess();
+  if (!access?.canView) notFound();
+  const { current, canManage } = access;
 
   const { view: viewParam } = await searchParams;
   const view: PipelineView = viewParam === "board" ? "board" : "list";
-  const manage = canManage === true;
+  const manage = canManage;
   // The dialog's pickers are only loaded for users who can create leads.
   const [rows, owners, companies] = await Promise.all([
     loadPipeline(),

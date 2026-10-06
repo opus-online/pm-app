@@ -7,7 +7,7 @@ import type { OfferLite } from "@/lib/sales/types";
 import type { CompanyOption, PipelineContact, PipelineRow, SalesOwnerOption } from "./types";
 
 // Deduped per request: loadPipeline and loadSalesOwners both need it.
-const loadSalesPeople = cache(async () => {
+export const loadSalesPeople = cache(async () => {
   const supabase = await createClient();
   const { data } = await supabase.rpc("sales_people");
   return data ?? [];
