@@ -95,9 +95,14 @@ export function PipelineBoard({ rows, canManage }: { rows: PipelineRow[]; canMan
   const [, startTransition] = useTransition();
 
   // Local optimistic copy of the pipeline. Re-synced whenever the server data changes (after
-  // revalidation) -- keyed on id+stage so an unchanged refetch doesn't clobber in-flight moves.
+  // revalidation) -- keyed on every field the board shows that can change server-side, so an
+  // unchanged refetch doesn't clobber in-flight moves.
   // Done during render (React's "adjust state on prop change" pattern) rather than in an effect.
-  const rowsKey = rows.map((r) => `${r.id}:${r.stage}`).join("|");
+  const rowsKey = rows
+    .map((r) =>
+      [r.id, r.stage, r.latest_offer_amount, r.owner.id, r.next_follow_up_on, r.won_at].join(":")
+    )
+    .join("|");
   const [syncedKey, setSyncedKey] = useState(rowsKey);
   const [items, setItems] = useState(rows);
   if (syncedKey !== rowsKey) {
@@ -148,7 +153,14 @@ export function PipelineBoard({ rows, canManage }: { rows: PipelineRow[]; canMan
     const before = items.find((d) => d.id === id);
     setItems((prev) => moveDeal(prev, id, input.stage));
     startTransition(async () => {
-      const r = await updateDealAction(id, input);
+      let r: Awaited<ReturnType<typeof updateDealAction>>;
+      try {
+        r = await updateDealAction(id, input);
+      } catch {
+        // Network failure / stale server action after a deploy -- revert instead of escalating
+        // to the error boundary.
+        r = { error: "Couldn't save. Try again." };
+      }
       if ("error" in r) {
         setItems((prev) =>
           before ? prev.map((d) => (d.id === id ? before : d)) : moveDeal(prev, id, from)
@@ -287,15 +299,13 @@ function BoardColumn({
         </div>
         <span className="truncate text-xs text-muted-foreground tabular-nums">{formatEur(total.value)}</span>
       </header>
-      {closed && (
-        <p className="-mt-1 px-3 pb-2 text-[11px] text-muted-foreground/70">
-          {stage === "won" ? "Last 30 days" : `${LOST_LIMIT} most recent`}
-        </p>
+      {stage === "won" && (
+        <p className="-mt-1 px-3 pb-2 text-[11px] text-muted-foreground/70">Last 30 days</p>
       )}
       <div className="flex min-h-32 flex-1 flex-col gap-2 px-2 pb-2">
         {deals.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-foreground/10 p-4 text-center text-xs text-muted-foreground/70">
-            {canManage ? "Drop a deal here" : "No deals"}
+            —
           </div>
         ) : (
           deals.map((deal) => (

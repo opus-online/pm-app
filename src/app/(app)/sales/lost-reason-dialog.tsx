@@ -47,9 +47,7 @@ export function LostReasonDialog({
         <form onSubmit={submit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle>Mark deal as lost</DialogTitle>
-            <DialogDescription>
-              A short note on why helps spot patterns later. It shows on the company timeline.
-            </DialogDescription>
+            <DialogDescription className="sr-only">Reason for losing the deal</DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">
             <Label htmlFor="lost-reason">Reason</Label>
