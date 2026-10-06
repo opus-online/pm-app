@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(25);
+select plan(33);
 
 -- fixtures: admin, sales (sal), second sales user (sal2), pm (no sales)
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, encrypted_password, created_at, updated_at) values
@@ -74,6 +74,35 @@ select throws_ok($$ select public.set_user_role('ac000000-0000-4000-8000-0000000
 reset role;
 select is((select count(*)::int from public.user_roles where user_id='ac000000-0000-4000-8000-000000000002' and role_key='sales'), 1, 'set_user_role keeps sales access');
 select is((select count(*)::int from public.user_roles where user_id='ac000000-0000-4000-8000-000000000002' and role_key<>'sales'), 1, 'exactly one main role remains');
+
+-- triggers + create_lead rpc
+reset role;
+select ok('ac100000-0000-4000-8000-000000000001'::uuid = any(array(select public.prospect_client_ids())), 'open-deal-only company listed as prospect');
+-- triggers (run as owner, actor from claims)
+set local "request.jwt.claims" to '{"sub":"ac000000-0000-4000-8000-000000000002","role":"authenticated"}';
+update public.deals set stage='contacted' where id='ac200000-0000-4000-8000-000000000001';
+-- within one pgTAP transaction now() is frozen, so created_at ties with the "Deal created" row
+-- from the earlier fixture insert; discriminate on metadata (only stage/owner-change rows carry
+-- a 'from' key) rather than trusting created_at ordering alone.
+select is((select body from public.crm_activities where deal_id='ac200000-0000-4000-8000-000000000001' and kind='system' and metadata ? 'from' order by created_at desc limit 1),
+          'Stage: new → contacted', 'stage change writes a system entry');
+insert into public.offers (id, deal_id, title, amount) values ('ac400000-0000-4000-8000-000000000001','ac200000-0000-4000-8000-000000000001','v1',12000);
+select ok(exists(select 1 from public.crm_activities where kind='system' and body='Offer added: v1'), 'offer insert writes a system entry');
+update public.deals set stage='won' where id='ac200000-0000-4000-8000-000000000001';
+select isnt((select won_at from public.deals where id='ac200000-0000-4000-8000-000000000001'), null, 'won sets won_at');
+select is(public.company_kind('ac100000-0000-4000-8000-000000000001'), 'client', 'won deal makes a client');
+
+insert into public.client_contacts (client_id, name, first_name, last_name) values ('ac100000-0000-4000-8000-000000000001','', 'Mari', 'Maasikas');
+select is((select name from public.client_contacts where first_name='Mari'), 'Mari Maasikas', 'contact name derived from first+last');
+
+set local role authenticated;
+select ok((public.create_lead(null,
+  '{"name":"Lead Co","reg_code":"87654321"}'::jsonb,
+  '{"title":"Website","source":"outbound","owner_id":"ac000000-0000-4000-8000-000000000002"}'::jsonb,
+  '{"first_name":"Jaan","last_name":"Tamm"}'::jsonb) ->> 'deal_id') is not null, 'create_lead creates company+deal+contact');
+set local "request.jwt.claims" to '{"sub":"ac000000-0000-4000-8000-000000000003","role":"authenticated"}';
+select throws_ok($$ select public.create_lead(null,'{"name":"X"}'::jsonb,'{"title":"Y","owner_id":"ac000000-0000-4000-8000-000000000003"}'::jsonb,null) $$, null, null, 'create_lead requires manage_sales');
+reset role;
 
 select * from finish();
 rollback;
