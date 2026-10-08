@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(22);
+select plan(26);
 
 -- Sales round 3: cancelled status, audit columns, update_step/cancel_step/edit_entry RPCs,
 -- and the new prospect rule (prospect = no project and no won deal).
@@ -161,6 +161,52 @@ select is(has_function_privilege('anon', 'public.cancel_step(uuid, text)', 'EXEC
   false, 'anon cannot execute cancel_step');
 select is(has_function_privilege('anon', 'public.edit_entry(uuid, text, public.activity_kind, timestamptz, uuid, uuid)', 'EXECUTE'),
   false, 'anon cannot execute edit_entry');
+
+-- 17. insert crm_activities with edited_by set -> 42501 (audit columns are locked on insert)
+set local role authenticated;
+set local "request.jwt.claims" to '{"sub":"ae000000-0000-4000-8000-000000000001","role":"authenticated"}';
+select throws_ok(
+  $$ insert into public.crm_activities (client_id, kind, body, status, actor_id, edited_by)
+     values ('ae100000-0000-4000-8000-000000000001','call','New entry','done','ae000000-0000-4000-8000-000000000001','ae000000-0000-4000-8000-000000000001') $$,
+  '42501', null, 'insert with edited_by set is rejected');
+
+-- 18. insert crm_activities with cancelled_at set -> 42501
+select throws_ok(
+  $$ insert into public.crm_activities (client_id, kind, body, status, actor_id, cancelled_at)
+     values ('ae100000-0000-4000-8000-000000000001','call','New entry','done','ae000000-0000-4000-8000-000000000001', now()) $$,
+  '42501', null, 'insert with cancelled_at set is rejected');
+reset role;
+-- clear the lingering jwt claims from the block above so the superuser fixture writes below
+-- (profile insert/update) aren't seen as a non-admin edit by protect_profile_columns().
+set local "request.jwt.claims" to '{}';
+
+-- 19. sales_people(): a user who only cancelled a step and now holds no sales role is still returned
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, encrypted_password, created_at, updated_at) values
+  ('ae000000-0000-4000-8000-000000000004','00000000-0000-0000-0000-000000000000','authenticated','authenticated','dana@r3.test','{"full_name":"Dana"}','{}','',now(),now());
+update public.user_profiles set status='active' where id='ae000000-0000-4000-8000-000000000004';
+insert into public.user_roles (user_id, role_key) values ('ae000000-0000-4000-8000-000000000004','sales');
+-- actor/assignee are sara, not dana: dana's only link to this row is cancelled_by, so this
+-- only passes once sales_people() adds cancelled_by to its id-match list.
+insert into public.crm_activities (id, client_id, kind, body, status, due_on, assignee_id, actor_id) values
+  ('ae300000-0000-4000-8000-00000000000c','ae100000-0000-4000-8000-000000000001','call','Follow up','planned','2026-10-21','ae000000-0000-4000-8000-000000000001','ae000000-0000-4000-8000-000000000001');
+set local role authenticated;
+set local "request.jwt.claims" to '{"sub":"ae000000-0000-4000-8000-000000000004","role":"authenticated"}';
+select public.cancel_step('ae300000-0000-4000-8000-00000000000c','Not needed');
+reset role;
+delete from public.user_roles where user_id='ae000000-0000-4000-8000-000000000004';
+set local role authenticated;
+set local "request.jwt.claims" to '{"sub":"ae000000-0000-4000-8000-000000000001","role":"authenticated"}';
+select ok(
+  exists(select 1 from public.sales_people() where id='ae000000-0000-4000-8000-000000000004'),
+  'sales_people returns a canceller who now holds no sales role');
+
+-- 20. author cannot delete their own cancelled step (0 rows deleted)
+delete from public.crm_activities where id='ae300000-0000-4000-8000-000000000006';
+reset role;
+select is(
+  (select count(*)::int from public.crm_activities where id='ae300000-0000-4000-8000-000000000006'),
+  1,
+  'author cannot delete their own cancelled step');
 
 select * from finish();
 rollback;

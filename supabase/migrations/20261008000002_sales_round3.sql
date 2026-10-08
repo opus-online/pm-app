@@ -14,6 +14,30 @@ alter table public.crm_activities
   add column edited_at timestamptz,
   add column edited_by uuid references public.user_profiles (id);
 
+-- Final-review fix: an insert must not be able to set any of the new audit/cancel columns --
+-- they are only ever written by update_step/cancel_step/edit_entry (security definer, server
+-- side). Same round-2 predicate (20261008000001), plus the new columns locked to null on both
+-- the done and planned branches.
+drop policy "insert crm_activities" on public.crm_activities;
+create policy "insert crm_activities" on public.crm_activities for insert
+  with check (public.has_permission(auth.uid(),'manage_sales') and kind <> 'system' and actor_id = auth.uid()
+              and (status = 'done' and done_at is null and done_by is null and done_comment is null
+                     and assignee_id is null and due_on is null
+                     and edited_at is null and edited_by is null
+                     and cancelled_at is null and cancelled_by is null and cancel_reason is null
+                   or status = 'planned' and public.is_sales_assignable(assignee_id) and done_at is null
+                     and done_by is null and done_comment is null
+                     and edited_at is null and edited_by is null
+                     and cancelled_at is null and cancelled_by is null and cancel_reason is null));
+
+-- Final-review fix: an author may delete their own log entry only while it is still 'done' --
+-- not once it has been edited away from that, and never a cancelled step (cancel_step is the
+-- only way to retire a planned step; deleting it would erase the trail).
+drop policy "delete own crm_activities" on public.crm_activities;
+create policy "delete own crm_activities" on public.crm_activities for delete
+  using (actor_id = auth.uid() and kind <> 'system' and status = 'done'
+         and public.has_permission(auth.uid(),'manage_sales'));
+
 -- ---------- update_step: edit a planned step's body/kind/due/assignee/contact/deal ----------
 create or replace function public.update_step(
   p_id uuid, p_body text, p_kind public.activity_kind, p_due_on date,
@@ -137,4 +161,22 @@ language sql stable security definer set search_path = public as $$
     when not exists (select 1 from public.deals d where d.client_id = company and d.stage = 'won')
      and not exists (select 1 from public.projects p where p.client_id = company)
     then 'prospect' else 'client' end
+$$;
+
+-- Final-review fix: sales_people() must also resolve editors and cancellers (edited_by,
+-- cancelled_by) so their names still show once they lose sales access -- same rationale as
+-- actor/assignee/done_by in the 20261008000001 version this replaces.
+create or replace function public.sales_people()
+returns table (id uuid, name text, avatar_url text, assignable boolean)
+language sql stable security definer set search_path = public as $$
+  select up.id, coalesce(up.full_name, up.email) as name, up.avatar_url, public.is_sales_assignable(up.id) as assignable
+  from public.user_profiles up
+  where public.has_permission(auth.uid(), 'view_sales')
+    and (
+      exists (select 1 from public.user_roles ur where ur.user_id = up.id and ur.role_key in ('sales','admin'))
+      or exists (select 1 from public.deals d where d.owner_id = up.id)
+      or exists (select 1 from public.crm_activities a
+                 where up.id in (a.actor_id, a.assignee_id, a.done_by, a.edited_by, a.cancelled_by))
+    )
+  order by 2;
 $$;

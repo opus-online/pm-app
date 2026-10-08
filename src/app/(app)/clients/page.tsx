@@ -29,6 +29,7 @@ export default async function ClientsPage() {
     { data: projectRows },
     { data: contactRows },
     { data: canManageClients },
+    { data: canViewSales },
     { data: prospects },
   ] = await Promise.all([
     supabase.from("clients").select("*").order("name"),
@@ -42,12 +43,17 @@ export default async function ClientsPage() {
     current
       ? supabase.rpc("has_permission", { uid: current.user.id, perm: "manage_clients" })
       : Promise.resolve({ data: false }),
-    // CRM prospects (clients with a deal but no won deal/project) live in Sales, not here --
-    // same definer RPC the Sales pipeline uses (load-pipeline.ts), ungated by design since the
+    current
+      ? supabase.rpc("has_permission", { uid: current.user.id, perm: "view_sales" })
+      : Promise.resolve({ data: false }),
+    // CRM prospects (clients with a deal but no won deal/project) live in Sales -- hidden here
+    // only for viewers who have view_sales (they see prospects under Sales instead). A viewer
+    // without view_sales has no Sales page to see them on, so they see every client here.
+    // Same definer RPC the Sales pipeline uses (load-pipeline.ts), ungated by design since the
     // kind split is identical for every viewer.
     supabase.rpc("prospect_client_ids"),
   ]);
-  const prospectIds = new Set((prospects ?? []) as string[]);
+  const prospectIds = canViewSales ? new Set((prospects ?? []) as string[]) : new Set<string>();
   const clients = ((data ?? []) as ClientRow[]).filter((c) => !prospectIds.has(c.id));
 
   const projectNamesByClientId = new Map<string, string[]>();
