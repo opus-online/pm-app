@@ -1,3 +1,5 @@
+-- Requires the base demo dataset from supabase/seed.sql (demo users incl. anna.pm 10000002, client 20000001). Local/demo databases only - the production DB was wiped of demo data and must not get this.
+
 -- ===== CRM demo (prefixes: c1 clients, c2 contacts, c3 deals, c4 offers) =====
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at, confirmation_token, email_change, email_change_token_new, recovery_token)

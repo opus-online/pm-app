@@ -583,9 +583,10 @@ insert into public.crm_activities (id, client_id, deal_id, contact_id, kind, bod
 on conflict (id) do nothing;
 
 -- a few completed steps with comments
-insert into public.crm_activities (client_id, deal_id, contact_id, kind, body, status, occurred_at, due_on, assignee_id, actor_id, done_at, done_by, done_comment) values
-  ('c1000001-0000-4000-8000-000000000001','c3000001-0000-4000-8000-000000000001','c2000001-0000-4000-8000-000000000001','call','Call Kristjan after v1 rejection','done', now() - interval '20 days', current_date - 20,'10000007-0000-4000-8000-000000000007','10000007-0000-4000-8000-000000000007', now() - interval '19 days','10000007-0000-4000-8000-000000000007','He wants a phased approach, sending v2'),
-  ('c1000002-0000-4000-8000-000000000002','c3000003-0000-4000-8000-000000000003','c2000003-0000-4000-8000-000000000003','email','Send intro deck to Kadri','done', now() - interval '15 days', current_date - 15,'10000002-0000-4000-8000-000000000002','10000002-0000-4000-8000-000000000002', now() - interval '14 days','10000002-0000-4000-8000-000000000002','Sent, she will share with the clinic owners');
+insert into public.crm_activities (id, client_id, deal_id, contact_id, kind, body, status, occurred_at, due_on, assignee_id, actor_id, done_at, done_by, done_comment) values
+  ('c5000009-0000-4000-8000-000000000009','c1000001-0000-4000-8000-000000000001','c3000001-0000-4000-8000-000000000001','c2000001-0000-4000-8000-000000000001','call','Call Kristjan after v1 rejection','done', now() - interval '20 days', current_date - 20,'10000007-0000-4000-8000-000000000007','10000007-0000-4000-8000-000000000007', now() - interval '19 days','10000007-0000-4000-8000-000000000007','He wants a phased approach, sending v2'),
+  ('c5000010-0000-4000-8000-000000000010','c1000002-0000-4000-8000-000000000002','c3000003-0000-4000-8000-000000000003','c2000003-0000-4000-8000-000000000003','email','Send intro deck to Kadri','done', now() - interval '15 days', current_date - 15,'10000002-0000-4000-8000-000000000002','10000002-0000-4000-8000-000000000002', now() - interval '14 days','10000002-0000-4000-8000-000000000002','Sent, she will share with the clinic owners')
+on conflict (id) do nothing;
 
 -- one company with no deals, only a next step
 insert into public.clients (id, name, reg_code, phone, email, website) values
