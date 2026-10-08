@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, XIcon } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, XIcon } from "lucide-react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -284,7 +284,9 @@ function DealsCell({ companyId, deals }: { companyId: string; deals: CompanyRow[
   const href = (dealId: string) => `/sales/companies/${companyId}?deal=${dealId}`;
   const summary = (
     <>
-      <span className="text-sm font-medium tabular-nums">{deals.length}</span>
+      <span className="text-sm font-medium tabular-nums">
+        {deals.length} {deals.length === 1 ? "deal" : "deals"}
+      </span>
       <span aria-hidden className="flex items-center gap-1">
         {ordered.map((d) => (
           <span key={d.id} className={`size-1.5 rounded-full ${STAGE_DOT[d.stage]}`} />
@@ -307,21 +309,30 @@ function DealsCell({ companyId, deals }: { companyId: string; deals: CompanyRow[
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
+        openOnHover
+        delay={120}
+        closeDelay={150}
         render={<button type="button" className={triggerClass} aria-label={`${deals.length} open deals`} />}
       >
         {summary}
+        <ChevronDown aria-hidden className="size-3.5 text-muted-foreground" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
+      <DropdownMenuContent align="start" className="w-80">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Open deals</DropdownMenuLabel>
           {ordered.map((d) => (
             <DropdownMenuItem key={d.id} onClick={() => router.push(href(d.id))} className="gap-2.5">
-              <span aria-hidden className={`size-2 shrink-0 rounded-full ${STAGE_DOT[d.stage]}`} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{d.title}</span>
-                <span className="block text-xs text-muted-foreground">{STAGE_LABEL[d.stage]}</span>
+                <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${STAGE_DOT[d.stage]}`} />
+                  {STAGE_LABEL[d.stage]}
+                </span>
               </span>
-              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatAmount(d.offer)}</span>
+              <span className="shrink-0 text-right">
+                <span className="block text-[11px] text-muted-foreground">Offer (€)</span>
+                <span className="block text-sm font-medium tabular-nums">{formatAmount(d.offer)}</span>
+              </span>
             </DropdownMenuItem>
           ))}
         </DropdownMenuGroup>
