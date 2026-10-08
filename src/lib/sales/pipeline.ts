@@ -1,6 +1,5 @@
 import { DEAL_STAGES, OPEN_STAGES, type DealLite, type DealStage, type OfferLite } from "./types";
 import { appDayKey } from "@/lib/time-zone";
-import { followUpDays } from "./urgency";
 
 const offerTime = (o: OfferLite) => o.sent_on ?? o.created_at.slice(0, 10);
 
@@ -25,10 +24,6 @@ export function pipelineTotals(deals: DealLite[], today: Date = new Date()) {
   return {
     openCount: open.length,
     pipelineValue: open.reduce((s, d) => s + value(d), 0),
-    dueCount: open.filter((d) => {
-      const n = followUpDays(d.next_follow_up_on, today);
-      return n !== null && n <= 0;
-    }).length,
     wonThisMonthValue: deals
       .filter((d) => d.stage === "won" && d.won_at !== null && appDayKey(d.won_at).slice(0, 7) === monthKey)
       .reduce((s, d) => s + value(d), 0),

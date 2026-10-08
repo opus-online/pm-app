@@ -31,14 +31,25 @@ export const dealFieldsSchema = z.object({
   title: z.string().trim().min(1, "Title is required").max(200),
   source: z.enum(DEAL_SOURCES),
   owner_id: z.uuid(),
-  next_follow_up_on: isoDate,
 });
+const newLeadStepSchema = z
+  .object({
+    body: text(2000),
+    due_on: isoDate,
+    assignee_id: z.preprocess(blankToNull, z.uuid().nullable().optional().transform((v) => v ?? null)),
+    kind: z.preprocess(blankToNull, z.enum(ACTIVITY_KINDS).nullable().optional().transform((v) => v ?? null)),
+  })
+  .refine((v) => !v.body || (!!v.due_on && !!v.assignee_id), {
+    path: ["due_on"],
+    message: "Due date and assignee are required when adding a step",
+  });
 export const newLeadSchema = z
   .object({
     client_id: z.uuid().nullable(),
     company: companySchema.partial({ name: true }).optional(),
     deal: dealFieldsSchema,
     contact: contactSchema.partial({ first_name: true }).optional(),
+    step: newLeadStepSchema.optional(),
   })
   .refine((v) => v.client_id !== null || !!v.company?.name?.trim(), {
     path: ["company", "name"],
@@ -50,7 +61,6 @@ export const dealUpdateSchema = z
     stage: z.enum(DEAL_STAGES).optional(),
     source: z.enum(DEAL_SOURCES).optional(),
     owner_id: z.uuid().optional(),
-    next_follow_up_on: isoDate,
     lost_reason: text(500),
   })
   .refine((v) => v.stage !== "lost" || !!v.lost_reason, { path: ["lost_reason"], message: "Give a reason" });
@@ -70,7 +80,29 @@ export const activitySchema = z.object({
   kind: z.enum(ACTIVITY_KINDS),
   body: z.string().trim().min(1, "Write something").max(5000),
   occurred_at: z.iso.datetime({ offset: true }).optional(),
-  set_follow_up_on: isoDate,
+});
+export const planStepSchema = z.object({
+  client_id: z.uuid(),
+  deal_id: z.uuid().nullable().optional(),
+  contact_id: z.uuid().nullable().optional(),
+  kind: z.enum(ACTIVITY_KINDS),
+  body: z.string().trim().min(1, "Write something").max(2000),
+  due_on: z.iso.date(),
+  assignee_id: z.uuid(),
+});
+export const completeStepSchema = z.object({
+  activity_id: z.uuid(),
+  done_on: z.iso.date(),
+  done_by: z.uuid(),
+  comment: text(2000),
+});
+export const rescheduleStepSchema = z.object({
+  activity_id: z.uuid(),
+  due_on: z.iso.date(),
+});
+export const reassignStepSchema = z.object({
+  activity_id: z.uuid(),
+  assignee_id: z.uuid(),
 });
 export type CompanyInput = z.input<typeof companySchema>;
 export type ContactInput = z.input<typeof contactSchema>;
@@ -78,3 +110,7 @@ export type NewLeadInput = z.input<typeof newLeadSchema>;
 export type DealUpdateInput = z.input<typeof dealUpdateSchema>;
 export type OfferInput = z.input<typeof offerSchema>;
 export type ActivityInput = z.input<typeof activitySchema>;
+export type PlanStepInput = z.input<typeof planStepSchema>;
+export type CompleteStepInput = z.input<typeof completeStepSchema>;
+export type RescheduleStepInput = z.input<typeof rescheduleStepSchema>;
+export type ReassignStepInput = z.input<typeof reassignStepSchema>;
