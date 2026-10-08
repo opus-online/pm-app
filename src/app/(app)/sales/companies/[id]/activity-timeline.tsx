@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { MoreHorizontal, PencilIcon, Trash2Icon } from "lucide-react";
+import { CalendarPlusIcon, MoreHorizontal, PencilIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { deleteActivityAction } from "@/app/actions/sales";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -18,6 +18,7 @@ import { timelineAt, visibleInTimeline, type TimelineMode } from "@/lib/sales/ti
 import type { ActivityView, ContactView, DealView } from "../../types";
 import { KIND_META } from "../../activity-kind";
 import { EntryEditDialog } from "./entry-edit-dialog";
+import { MoveToStepsDialog } from "./move-to-steps-dialog";
 import { useTimelineMode } from "./use-timeline-mode";
 
 function dayLabel(key: string, todayKey: string, yesterdayKey: string) {
@@ -33,6 +34,8 @@ export function ActivityTimeline({
   canManage,
   showDeal = true,
   emptyText,
+  people = [],
+  currentUserId = "",
 }: {
   activities: ActivityView[];
   /** The company's contacts and deals, offered when editing an entry. */
@@ -42,6 +45,9 @@ export function ActivityTimeline({
   /** Off inside a deal's own panel, where the deal chip would only repeat the context. */
   showDeal?: boolean;
   emptyText?: string;
+  /** Assignable Sales people + the viewer, for "Move to Next steps". */
+  people?: { id: string; name: string; avatar_url: string | null }[];
+  currentUserId?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -49,6 +55,8 @@ export function ActivityTimeline({
   const [deleting, setDeleting] = useState<ActivityView | null>(null);
   const [editing, setEditing] = useState<ActivityView | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [moving, setMoving] = useState<ActivityView | null>(null);
+  const [moveOpen, setMoveOpen] = useState(false);
 
   // Captured once per mount: "Today" is relative to when the page was opened.
   const [now] = useState(() => Date.now());
@@ -127,6 +135,15 @@ export function ActivityTimeline({
                             : undefined
                         }
                         onDelete={editable ? () => setDeleting(a) : undefined}
+                        onMoveToSteps={
+                          // Only plain logged entries (not completed steps) can become a next step.
+                          editable && !a.done_at && people.length > 0
+                            ? () => {
+                                setMoving(a);
+                                setMoveOpen(true);
+                              }
+                            : undefined
+                        }
                         onOpenDeal={
                           showDeal && a.deal_id
                             ? () => router.replace(`${pathname}?deal=${a.deal_id}`, { scroll: false })
@@ -145,6 +162,13 @@ export function ActivityTimeline({
       {canManage && (
         <>
           <EntryEditDialog entry={editing} contacts={contacts} deals={deals} open={editOpen} onOpenChange={setEditOpen} />
+          <MoveToStepsDialog
+            entry={moving}
+            people={people}
+            currentUserId={currentUserId}
+            open={moveOpen}
+            onOpenChange={setMoveOpen}
+          />
           <ConfirmDialog
             open={deleting !== null}
             onOpenChange={(o) => !o && setDeleting(null)}
@@ -172,12 +196,14 @@ function TimelineItem({
   last,
   onEdit,
   onDelete,
+  onMoveToSteps,
   onOpenDeal,
 }: {
   activity: ActivityView;
   last: boolean;
   onEdit?: () => void;
   onDelete?: () => void;
+  onMoveToSteps?: () => void;
   onOpenDeal?: () => void;
 }) {
   const system = a.kind === "system";
@@ -294,6 +320,12 @@ function TimelineItem({
               <DropdownMenuItem onClick={onEdit}>
                 <PencilIcon />
                 Edit
+              </DropdownMenuItem>
+            )}
+            {onMoveToSteps && (
+              <DropdownMenuItem onClick={onMoveToSteps}>
+                <CalendarPlusIcon />
+                Move to Next steps
               </DropdownMenuItem>
             )}
             {onEdit && onDelete && <DropdownMenuSeparator />}

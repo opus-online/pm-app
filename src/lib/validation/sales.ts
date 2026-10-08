@@ -105,6 +105,12 @@ export const rescheduleStepSchema = z.object({
   activity_id: z.uuid(),
   due_on: z.iso.date(),
 });
+export const convertEntrySchema = z.object({
+  activity_id: z.uuid(),
+  due_on: z.iso.date({ error: "Pick a due date" }),
+  assignee_id: z.uuid({ error: "Pick who is responsible" }),
+});
+export type ConvertEntryInput = z.input<typeof convertEntrySchema>;
 export const reassignStepSchema = z.object({
   activity_id: z.uuid(),
   assignee_id: z.uuid(),

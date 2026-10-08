@@ -2259,6 +2259,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      convert_entry_to_step: {
+        Args: { p_assignee: string; p_due_on: string; p_id: string }
+        Returns: undefined
+      }
       create_credential_secret: {
         Args: {
           secret: string

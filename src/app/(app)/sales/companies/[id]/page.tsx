@@ -248,7 +248,14 @@ export default async function CompanyPage({
                 activeDealId={activeDeal?.id ?? null}
               />
             )}
-            <ActivityTimeline activities={activities} contacts={contacts} deals={deals} canManage={canManage} />
+            <ActivityTimeline
+              activities={activities}
+              contacts={contacts}
+              deals={deals}
+              canManage={canManage}
+              people={owners}
+              currentUserId={current.user.id}
+            />
           </div>
         </div>
 

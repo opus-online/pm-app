@@ -180,14 +180,14 @@ export function ActivityComposer({
             >
               <ToggleGroupItem value="log" className="px-2.5 aria-pressed:bg-muted aria-pressed:text-foreground">
                 <CheckIcon />
-                Log done
+                Already happened
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="plan"
                 className="px-2.5 aria-pressed:bg-blue-500/10 aria-pressed:text-blue-700 dark:aria-pressed:text-blue-300"
               >
                 <CalendarPlusIcon />
-                Plan next step
+                To do (next step)
               </ToggleGroupItem>
             </ToggleGroup>
 

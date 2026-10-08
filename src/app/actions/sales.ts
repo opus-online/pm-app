@@ -33,7 +33,7 @@ import {
   type PlanStepInput,
   type ReassignStepInput,
   type RescheduleStepInput,
-  type UpdateStepInput,
+  type UpdateStepInput, convertEntrySchema, type ConvertEntryInput,
 } from "@/lib/validation/sales";
 
 type Result = { error: string } | { success: true };
@@ -444,6 +444,39 @@ export async function rescheduleStepAction(input: RescheduleStepInput): Promise<
     resourceType: "crm_activity",
     resourceId: activity_id,
     metadata: { client_id: activity?.client_id ?? null, due_on },
+  });
+  revalidateSales(activity?.client_id);
+  return { success: true as const };
+}
+
+/** Turn a logged entry (saved as "already happened" by mistake) into a planned next step. */
+export async function convertEntryToStepAction(input: ConvertEntryInput): Promise<Result> {
+  const current = await requirePermission("manage_sales");
+
+  const parsed = convertEntrySchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid entry." };
+  const { activity_id, due_on, assignee_id } = parsed.data;
+
+  const supabase = await createClient();
+  const { data: activity } = await supabase.from("crm_activities").select("client_id").eq("id", activity_id).single();
+
+  const { error } = await supabase.rpc("convert_entry_to_step", {
+    p_id: activity_id,
+    p_due_on: due_on,
+    p_assignee: assignee_id,
+  });
+  if (error) {
+    if (error.code === "22023") return { error: "This entry is on a closed deal, so it can't become a next step." };
+    return { error: mapRound3RpcError(error, "This entry can't be moved to next steps.") };
+  }
+
+  await writeAudit({
+    action: "company.saved",
+    actorId: current.user.id,
+    actorEmail: current.profile.email,
+    resourceType: "crm_activity",
+    resourceId: activity_id,
+    metadata: { client_id: activity?.client_id ?? null, moved_to_next_steps: true, due_on, assignee_id },
   });
   revalidateSales(activity?.client_id);
   return { success: true as const };

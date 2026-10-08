@@ -410,6 +410,7 @@ function DealSheetBody({
           canManage={canManage}
           showDeal={false}
           emptyText="No activity on this deal yet."
+          people={owners}
         />
       </div>
 
