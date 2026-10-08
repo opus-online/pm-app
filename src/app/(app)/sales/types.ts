@@ -77,12 +77,17 @@ export type DealView = {
   stage: DealStage;
   source: DealSource;
   owner: { id: string; name: string; avatar_url: string | null };
-  next_follow_up_on: string | null;
+  /** The deal's earliest planned step. */
+  next_step: NextStep | null;
   lost_reason: string | null;
   project_id: string | null;
   offers: OfferView[];
 };
 
+type PersonRef = { id: string; name: string; avatar_url: string | null };
+
+/** A timeline entry (status done). Entries that started as a planned step carry who completed
+ * it and when (`done_at`, noon of the done day); everything else has those null. */
 export type ActivityView = {
   id: string;
   kind: ActivityKind;
@@ -91,6 +96,15 @@ export type ActivityView = {
   deal_id: string | null;
   deal_title: string | null;
   contact_name: string | null;
-  actor: { id: string; name: string; avatar_url: string | null } | null;
+  actor: PersonRef | null;
   is_mine: boolean;
+  status: "planned" | "done";
+  due_on: string | null;
+  assignee: PersonRef | null;
+  done_at: string | null;
+  done_by: PersonRef | null;
+  done_comment: string | null;
 };
+
+/** An open planned step on the company page, with its contact / deal names resolved. */
+export type NextStepView = NextStep & { contact_name: string | null; deal_title: string | null };

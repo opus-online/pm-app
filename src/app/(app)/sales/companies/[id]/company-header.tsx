@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowUpRightIcon, ExternalLinkIcon } from "lucide-react";
 import { DotBadge } from "@/components/dot-badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { avatarTint } from "@/lib/avatar-tint";
 import { NEUTRAL_ACTION_CLASS } from "@/lib/action-styles";
 import { initials } from "../../../projects/types";
@@ -63,9 +64,20 @@ export function CompanyHeader({ company, canManage }: { company: CompanyView; ca
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
             <h1 className="text-2xl font-semibold">{company.name}</h1>
-            <DotBadge dotClassName={badge.dot} className={badge.className}>
-              {badge.label}
-            </DotBadge>
+            {company.kind === "prospect" ? (
+              <Tooltip>
+                <TooltipTrigger render={<span className="inline-flex" />}>
+                  <DotBadge dotClassName={badge.dot} className={badge.className}>
+                    {badge.label}
+                  </DotBadge>
+                </TooltipTrigger>
+                <TooltipContent>No project or won deal yet</TooltipContent>
+              </Tooltip>
+            ) : (
+              <DotBadge dotClassName={badge.dot} className={badge.className}>
+                {badge.label}
+              </DotBadge>
+            )}
           </div>
           {meta.length > 0 && (
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">

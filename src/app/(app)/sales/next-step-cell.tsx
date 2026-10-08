@@ -4,7 +4,7 @@ import { PersonAvatar } from "@/components/person-avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { NextStep } from "@/lib/sales/next-step";
 import { cn } from "@/lib/utils";
-import { KIND_META } from "./companies/[id]/activity-kind";
+import { KIND_META } from "./activity-kind";
 import { DueChip } from "./due-chip";
 import { TruncateTooltip } from "./truncate-tooltip";
 

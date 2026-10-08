@@ -12,14 +12,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { appClockTime, appDayKey, shiftDayKey } from "@/lib/time-zone";
 import { cn } from "@/lib/utils";
-import { formatShortDate } from "../../../people/types";
+import { formatDateEt } from "@/lib/sales/date-format";
 import type { ActivityView } from "../../types";
-import { KIND_META } from "./activity-kind";
+import { KIND_META } from "../../activity-kind";
 
 function dayLabel(key: string, todayKey: string, yesterdayKey: string) {
   if (key === todayKey) return "Today";
   if (key === yesterdayKey) return "Yesterday";
-  return formatShortDate(key);
+  return formatDateEt(key);
 }
 
 export function ActivityTimeline({
@@ -46,7 +46,8 @@ export function ActivityTimeline({
 
   const groups: { key: string; items: ActivityView[] }[] = [];
   for (const a of activities) {
-    const key = appDayKey(a.occurred_at);
+    // A completed step belongs to the day it was done.
+    const key = appDayKey(a.done_at ?? a.occurred_at);
     const last = groups.at(-1);
     if (last?.key === key) last.items.push(a);
     else groups.push({ key, items: [a] });
@@ -130,13 +131,19 @@ function TimelineItem({
   onOpenDeal?: () => void;
 }) {
   const system = a.kind === "system";
+  const doneStep = a.done_at !== null;
   const { icon: Icon, circle } = KIND_META[a.kind];
 
-  const meta = [
-    a.actor?.name ?? null,
-    <span key="t" className="tabular-nums">{appClockTime(a.occurred_at)}</span>,
-    a.contact_name,
-  ].filter(Boolean);
+  // A completed step's "Done by" line says who and when; its done time is only a day.
+  const meta = (
+    doneStep
+      ? [a.contact_name]
+      : [
+          a.actor?.name ?? null,
+          <span key="t" className="tabular-nums">{appClockTime(a.occurred_at)}</span>,
+          a.contact_name,
+        ]
+  ).filter(Boolean);
 
   return (
     <li className="group relative flex gap-3 pb-4 last:pb-0">
@@ -152,6 +159,11 @@ function TimelineItem({
           )}
         >
           <Icon className={system ? "size-3" : "size-3.5"} />
+          {doneStep && (
+            <span className="absolute -right-0.5 -bottom-0.5 flex size-3.5 items-center justify-center rounded-full bg-emerald-500 text-[8px] leading-none font-bold text-white ring-2 ring-card">
+              ✓
+            </span>
+          )}
         </span>
       </span>
       <div className={cn("min-w-0 flex-1", system ? "pt-0.5" : "pt-1")}>
@@ -163,6 +175,16 @@ function TimelineItem({
         >
           {a.body}
         </p>
+        {doneStep && (
+          <div className="mt-1.5 border-l-2 border-emerald-500/40 pl-2.5">
+            <p className="text-xs font-medium text-emerald-700 tabular-nums dark:text-emerald-400">
+              ✓ Done by {a.done_by?.name ?? "Unknown"} · {formatDateEt(a.done_at)}
+            </p>
+            {a.done_comment && (
+              <p className="mt-0.5 text-sm break-words whitespace-pre-line text-muted-foreground">{a.done_comment}</p>
+            )}
+          </div>
+        )}
         <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
           {meta.map((part, i) => (
             <span key={i} className="flex items-center gap-x-1.5">

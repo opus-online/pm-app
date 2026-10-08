@@ -6,8 +6,9 @@ import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { getSalesAccess } from "../../access";
-import { loadCompanyOptions, loadSalesOwners, loadSalesPeople } from "../../load-pipeline";
-import type { ActivityView, CompanyView, ContactView, DealView } from "../../types";
+import { compareDueDates } from "@/lib/sales/urgency";
+import { loadCompanyOptions, loadSalesOwners, loadSalesPeople, toNextStep } from "../../load-pipeline";
+import type { ActivityView, CompanyView, ContactView, DealView, NextStepView } from "../../types";
 import type {
   ClientContactOption, ClientOption, PmOption,
 } from "../../../projects/new/project-create-fields";
@@ -17,6 +18,8 @@ import { CompanyHeader } from "./company-header";
 import { ContactsCard } from "./contacts-card";
 import { DealSheet, type ProjectDialogData } from "./deal-sheet";
 import { DealsCard } from "./deals-card";
+import { NextStepsCard } from "./next-steps-card";
+import { PlanStepProvider } from "./plan-step-context";
 
 // Company workspace: who the company is, its deals and contacts on the left, and everything that
 // happened with it on the right. Every deal link in Sales lands here with ?deal=<id>.
@@ -37,7 +40,7 @@ export default async function CompanyPage({
   const supabase = await createClient();
   // One parallel round trip. Names come from sales_people() (definer read, shared with the
   // pipeline via React cache): user_profiles RLS hides other users' rows from non-admin sales.
-  const [clientRes, kindRes, contactsRes, dealsRes, activitiesRes, people, owners, companies] = await Promise.all([
+  const [clientRes, kindRes, contactsRes, dealsRes, activitiesRes, stepsRes, people, owners, companies] = await Promise.all([
     supabase.from("clients").select("id, name, reg_code, phone, email, website, notes").eq("id", id).maybeSingle(),
     supabase.rpc("company_kind", { company: id }),
     supabase
@@ -49,24 +52,33 @@ export default async function CompanyPage({
     supabase
       .from("deals")
       .select(
-        "id, title, stage, source, owner_id, next_follow_up_on, lost_reason, project_id, offers(id, title, amount, status, sent_on, valid_until, link_url, note, created_at)"
+        "id, title, stage, source, owner_id, lost_reason, project_id, offers(id, title, amount, status, sent_on, valid_until, link_url, note, created_at)"
       )
       .eq("client_id", id)
       .order("created_at", { ascending: false }),
     supabase
       .from("crm_activities")
-      .select("id, kind, body, occurred_at, deal_id, contact_id, actor_id")
+      .select("id, kind, body, occurred_at, deal_id, contact_id, actor_id, status, due_on, assignee_id, done_at, done_by, done_comment")
       .eq("client_id", id)
+      .eq("status", "done")
       .order("occurred_at", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(200),
+    // Open steps live in the Next steps card, not in the timeline.
+    supabase
+      .from("crm_activities")
+      .select("id, kind, body, due_on, deal_id, contact_id, assignee_id")
+      .eq("client_id", id)
+      .eq("status", "planned")
+      .order("due_on")
+      .order("created_at"),
     loadSalesPeople(),
     // New-deal dialog pickers, only for users who can create deals.
     canManage ? loadSalesOwners() : Promise.resolve([]),
     canManage ? loadCompanyOptions() : Promise.resolve([]),
   ]);
   // A failed read must not masquerade as "not found", an empty list or a wrong Prospect label.
-  if (clientRes.error || kindRes.error || contactsRes.error || dealsRes.error || activitiesRes.error) {
+  if (clientRes.error || kindRes.error || contactsRes.error || dealsRes.error || activitiesRes.error || stepsRes.error) {
     throw new Error("Failed to load the company");
   }
   const client = clientRes.data;
@@ -101,13 +113,21 @@ export default async function CompanyPage({
     return { id: uid, name: p?.name ?? "Unknown", avatar_url: p?.avatar_url ?? null };
   };
 
+  // Already ordered due_on, created_at -- the same order deal_next_steps picks a deal's first from.
+  const plannedSteps = (stepsRes.data ?? []).flatMap((s) => {
+    const step = toNextStep({ ...s, activity_id: s.id }, peopleById);
+    return step ? [step] : [];
+  });
+  const stepByDeal = new Map<string, (typeof plannedSteps)[number]>();
+  for (const s of plannedSteps) if (s.deal_id && !stepByDeal.has(s.deal_id)) stepByDeal.set(s.deal_id, s);
+
   const deals: DealView[] = (dealsRes.data ?? []).map((d) => ({
     id: d.id,
     title: d.title,
     stage: d.stage,
     source: d.source,
     owner: person(d.owner_id),
-    next_follow_up_on: d.next_follow_up_on,
+    next_step: stepByDeal.get(d.id) ?? null,
     lost_reason: d.lost_reason,
     project_id: d.project_id,
     offers: (d.offers ?? []).map((o) => ({
@@ -125,17 +145,34 @@ export default async function CompanyPage({
 
   const dealTitle = new Map(deals.map((d) => [d.id, d.title]));
   const contactName = new Map(contacts.map((c) => [c.id, c.name]));
-  const activities: ActivityView[] = (activitiesRes.data ?? []).map((a) => ({
-    id: a.id,
-    kind: a.kind,
-    body: a.body,
-    occurred_at: a.occurred_at,
-    deal_id: a.deal_id,
-    deal_title: a.deal_id ? (dealTitle.get(a.deal_id) ?? null) : null,
-    contact_name: a.contact_id ? (contactName.get(a.contact_id) ?? null) : null,
-    actor: a.actor_id ? person(a.actor_id) : null,
-    is_mine: a.actor_id === current.user.id,
-  }));
+  const activities: ActivityView[] = (activitiesRes.data ?? [])
+    .map((a) => ({
+      id: a.id,
+      kind: a.kind,
+      body: a.body,
+      occurred_at: a.occurred_at,
+      deal_id: a.deal_id,
+      deal_title: a.deal_id ? (dealTitle.get(a.deal_id) ?? null) : null,
+      contact_name: a.contact_id ? (contactName.get(a.contact_id) ?? null) : null,
+      actor: a.actor_id ? person(a.actor_id) : null,
+      is_mine: a.actor_id === current.user.id,
+      status: a.status,
+      due_on: a.due_on,
+      assignee: a.assignee_id ? person(a.assignee_id) : null,
+      done_at: a.done_at,
+      done_by: a.done_by ? person(a.done_by) : null,
+      done_comment: a.done_comment,
+    }))
+    // A completed step sits on the day it was done, not the day it was planned.
+    .sort((a, b) => Date.parse(b.done_at ?? b.occurred_at) - Date.parse(a.done_at ?? a.occurred_at));
+
+  const steps: NextStepView[] = plannedSteps
+    .map((s) => ({
+      ...s,
+      contact_name: s.contact_id ? (contactName.get(s.contact_id) ?? null) : null,
+      deal_title: s.deal_id ? (dealTitle.get(s.deal_id) ?? null) : null,
+    }))
+    .sort((a, b) => compareDueDates(a.due_on, b.due_on));
 
   // ?deal= that doesn't belong to this company is ignored rather than trusted.
   const activeDeal = deals.find((d) => d.id === dealParam) ?? null;
@@ -148,57 +185,67 @@ export default async function CompanyPage({
     : null;
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-4">
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink render={<Link href="/sales" />}>Sales</BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>{company.name}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        <CompanyHeader company={company} canManage={canManage} />
-      </div>
-
-      <div className="grid items-start gap-6 lg:grid-cols-[22rem_1fr]">
-        <div className="space-y-6">
-          <DealsCard
-            deals={deals}
-            company={company}
-            activeDealId={activeDeal?.id ?? null}
-            canManage={canManage}
-            owners={owners}
-            companies={companies}
-            currentUserId={current.user.id}
-          />
-          <ContactsCard companyId={company.id} contacts={contacts} canManage={canManage} />
+    <PlanStepProvider>
+      <div className="space-y-6">
+        <div className="space-y-4">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink render={<Link href="/sales" />}>Sales</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{company.name}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+          <CompanyHeader company={company} canManage={canManage} />
         </div>
-        <div className="min-w-0 space-y-6">
-          {canManage && (
-            <ActivityComposer
-              companyId={company.id}
-              contacts={contacts}
+
+        <div className="grid items-start gap-6 lg:grid-cols-[22rem_1fr]">
+          <div className="space-y-6">
+            <DealsCard
               deals={deals}
+              company={company}
               activeDealId={activeDeal?.id ?? null}
+              canManage={canManage}
+              owners={owners}
+              companies={companies}
+              currentUserId={current.user.id}
             />
-          )}
-          <ActivityTimeline activities={activities} canManage={canManage} />
+            <ContactsCard companyId={company.id} contacts={contacts} canManage={canManage} />
+          </div>
+          <div className="min-w-0 space-y-6">
+            <NextStepsCard
+              steps={steps}
+              people={owners}
+              canManage={canManage}
+              currentUserId={current.user.id}
+            />
+            {canManage && (
+              <ActivityComposer
+                companyId={company.id}
+                contacts={contacts}
+                deals={deals}
+                people={owners}
+                currentUserId={current.user.id}
+                activeDealId={activeDeal?.id ?? null}
+              />
+            )}
+            <ActivityTimeline activities={activities} canManage={canManage} />
+          </div>
         </div>
-      </div>
 
-      <DealSheet
-        deal={activeDeal}
-        company={company}
-        activities={activities}
-        owners={owners}
-        canManage={canManage}
-        projectDialogData={projectDialogData}
-      />
-    </div>
+        <DealSheet
+          deal={activeDeal}
+          company={company}
+          activities={activities}
+          owners={owners}
+          canManage={canManage}
+          projectDialogData={projectDialogData}
+        />
+      </div>
+    </PlanStepProvider>
   );
 }
 

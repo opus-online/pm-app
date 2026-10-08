@@ -22,6 +22,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { appDayKey, shiftDayKey } from "@/lib/time-zone";
 import { cn } from "@/lib/utils";
 import { SOURCE_LABEL } from "./stage";
 import type { CompanyOption, SalesOwnerOption } from "./types";
@@ -40,7 +41,9 @@ type LeadForm = {
   contactOpen: boolean;
   client_id: string | null;
   company: { name: string; reg_code: string; phone: string; email: string; website: string };
-  deal: { title: string; source: DealSource; owner_id: string; next_follow_up_on: string };
+  deal: { title: string; source: DealSource; owner_id: string };
+  /** Optional first step, assigned to the deal owner; sent only when "What to do" is filled. */
+  step: { body: string; due_on: string };
   contact: { first_name: string; last_name: string; role: string; email: string; phone: string };
 };
 
@@ -57,6 +60,9 @@ function prune(values: LeadForm): NewLeadInput {
     ...(mode === "new" ? { company: values.company } : {}),
     deal: values.deal,
     ...(contactFilled ? { contact: values.contact } : {}),
+    ...(values.step.body.trim()
+      ? { step: { body: values.step.body, due_on: values.step.due_on, assignee_id: values.deal.owner_id } }
+      : {}),
   };
 }
 
@@ -144,6 +150,9 @@ function NewLeadForm({
           first_name: { type: "required", message: "First name is required" },
         };
       }
+      if (pruned.step && !pruned.step.due_on) {
+        errors.step = { due_on: { type: "required", message: "Pick a due date" } };
+      }
       return Object.keys(errors).length
         ? { values: {}, errors: errors as never }
         : { values, errors: {} };
@@ -158,7 +167,8 @@ function NewLeadForm({
       contactOpen: !preselected,
       client_id: preselected,
       company: EMPTY_COMPANY,
-      deal: { title: "", source: "inbound", owner_id: defaultOwner, next_follow_up_on: "" },
+      deal: { title: "", source: "inbound", owner_id: defaultOwner },
+      step: { body: "", due_on: shiftDayKey(appDayKey(Date.now()), 1) },
       contact: EMPTY_CONTACT,
     },
   });
@@ -355,7 +365,7 @@ function NewLeadForm({
               </FormItem>
             )}
           />
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <FormField
               control={form.control}
               name="deal.source"
@@ -406,7 +416,13 @@ function NewLeadForm({
                 </FormItem>
               )}
             />
-            <TextField form={form} name="deal.next_follow_up_on" label="Next follow-up" type="date" />
+          </div>
+        </FormSection>
+
+        <FormSection tone="amber" title="Next step">
+          <div className="grid gap-3 sm:grid-cols-[1fr_11rem]">
+            <TextField form={form} name="step.body" label="What to do" placeholder="e.g. Call to agree on a meeting" />
+            <TextField form={form} name="step.due_on" label="Due date" type="date" />
           </div>
         </FormSection>
 
@@ -475,7 +491,7 @@ function OwnerLabel({ owner }: { owner: SalesOwnerOption }) {
 }
 
 type TextFieldName =
-  | "company.phone" | "company.email" | "company.website" | "deal.next_follow_up_on"
+  | "company.phone" | "company.email" | "company.website" | "step.body" | "step.due_on"
   | "contact.first_name" | "contact.last_name" | "contact.role" | "contact.email" | "contact.phone";
 
 function TextField({

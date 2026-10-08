@@ -1,7 +1,7 @@
 import { GitCommitHorizontalIcon, MailIcon, PhoneIcon, StickyNoteIcon, UsersIcon, type LucideIcon } from "lucide-react";
 import type { ActivityKind } from "@/lib/sales/types";
 
-/** One look per activity kind, shared by the composer's toggle and the timeline's icon circle. */
+/** One look per activity kind, shared by the composer toggle, the timeline icon circle and the next-step rows. */
 export const KIND_META: Record<
   ActivityKind,
   { label: string; icon: LucideIcon; circle: string; pressed: string; placeholder: string }

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useTransition } from "react";
+import { useId, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowUpRight, Building2, ExternalLink, MoreHorizontal, PartyPopper, PlusIcon } from "lucide-react";
+import { ArrowUpRight, Building2, CalendarPlusIcon, ExternalLink, MoreHorizontal, PartyPopper, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteDealAction, deleteOfferAction, linkDealProjectAction, updateDealAction,
@@ -16,6 +16,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -27,18 +28,22 @@ import { DEAL_SOURCES, DEAL_STAGES, type DealSource, type DealStage } from "@/li
 import { appDayKey } from "@/lib/time-zone";
 import { cn } from "@/lib/utils";
 import type { DealUpdateInput } from "@/lib/validation/sales";
-import { formatShortDate } from "../../../people/types";
+import { formatDateEt } from "@/lib/sales/date-format";
+import type { NextStep } from "@/lib/sales/next-step";
 import { ProjectCreateDialog } from "../../../projects/project-create-dialog";
 import type {
   ClientContactOption, ClientOption, PmOption,
 } from "../../../projects/new/project-create-fields";
-import { FollowUpChip } from "../../follow-up-chip";
+import { KIND_META } from "../../activity-kind";
+import { DueChip } from "../../due-chip";
 import { LostReasonDialog } from "../../lost-reason-dialog";
 import { formatEur } from "../../money";
+import { TruncateTooltip } from "../../truncate-tooltip";
 import { OFFER_STATUS_DOT, OFFER_STATUS_LABEL, SOURCE_LABEL, STAGE_DOT, STAGE_LABEL } from "../../stage";
 import type { ActivityView, CompanyView, DealView, OfferView, SalesOwnerOption } from "../../types";
 import { ActivityTimeline } from "./activity-timeline";
 import { OfferFormDialog } from "./offer-form-dialog";
+import { usePlanStep } from "./plan-step-context";
 import { useUnstickRefresh } from "./use-unstick-refresh";
 
 /** Options for the New project dialog -- present only when the viewer may create projects and a
@@ -130,6 +135,7 @@ function DealSheetBody({
 }) {
   const ids = useId();
   const router = useRouter();
+  const { planNext } = usePlanStep();
   // Field edits show at once as a local patch over the server's deal; the next server render
   // (the action's revalidation) replaces it, and a failed save drops it.
   const [patch, setPatch] = useState<Partial<DealView> | null>(null);
@@ -317,17 +323,26 @@ function DealSheetBody({
               <OwnerOption name={deal.owner.name} avatarUrl={deal.owner.avatar_url} />
             )}
           </Field>
-          <Field label="Next follow-up" htmlFor={`${ids}-follow-up`}>
-            {canManage ? (
-              <FollowUpInput
-                id={`${ids}-follow-up`}
-                value={deal.next_follow_up_on}
-                onCommit={(next_follow_up_on) => save({ next_follow_up_on }, { next_follow_up_on })}
-              />
-            ) : (
-              <FollowUpChip date={deal.next_follow_up_on} />
-            )}
-          </Field>
+          <div className="col-span-2 space-y-1.5">
+            <dt className={FIELD_LABEL}>Next step</dt>
+            <dd className="flex min-h-7 items-center gap-2 text-sm">
+              <NextStepLine step={deal.next_step} />
+              {canManage && (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  className="ml-auto shrink-0 text-muted-foreground"
+                  onClick={() => {
+                    planNext({ contact_id: null, deal_id: deal.id });
+                    onClose();
+                  }}
+                >
+                  <CalendarPlusIcon />
+                  Plan step
+                </Button>
+              )}
+            </dd>
+          </div>
           {deal.stage === "lost" && (
             <div className="col-span-2 space-y-1.5">
               <dt className={FIELD_LABEL}>Lost reason</dt>
@@ -470,6 +485,39 @@ function Field({ label, htmlFor, children }: { label: string; htmlFor: string; c
   );
 }
 
+/** The deal's earliest open step, read-only: due chip · kind · text · assignee. */
+function NextStepLine({ step }: { step: NextStep | null }) {
+  if (!step) return <span className="text-muted-foreground">—</span>;
+  const { icon: Icon, circle, label } = KIND_META[step.kind];
+  return (
+    <span className="flex min-w-0 flex-1 items-center gap-2">
+      <DueChip date={step.due_on} className="shrink-0 bg-background" />
+      <span
+        role="img"
+        aria-label={label}
+        className={cn("flex size-6 shrink-0 items-center justify-center rounded-md", circle)}
+      >
+        <Icon className="size-3.5" />
+      </span>
+      <TruncateTooltip text={step.body} className="flex-1" />
+      {step.assignee && (
+        <Tooltip>
+          <TooltipTrigger
+            render={<span aria-label={`Assignee: ${step.assignee.name}`} className="inline-flex shrink-0" />}
+          >
+            <PersonAvatar
+              name={step.assignee.name}
+              avatarUrl={step.assignee.avatar_url}
+              className="size-6 text-[10px]"
+            />
+          </TooltipTrigger>
+          <TooltipContent>{step.assignee.name}</TooltipContent>
+        </Tooltip>
+      )}
+    </span>
+  );
+}
+
 function Dot({ className, children }: { className: string; children: React.ReactNode }) {
   return (
     <span className="flex items-center gap-2">
@@ -544,57 +592,6 @@ function DealTitle({ title, canEdit, onSave }: { title: string; canEdit: boolean
         title
       )}
     </SheetTitle>
-  );
-}
-
-/** Date input that saves on its own: every complete date (a calendar pick, or the last digit
- * typed) commits from the change event itself; partial years seen while typing never do. */
-function FollowUpInput({
-  id,
-  value,
-  onCommit,
-}: {
-  id: string;
-  value: string | null;
-  onCommit: (v: string | null) => void;
-}) {
-  const [draft, setDraft] = useState(value ?? "");
-  const [synced, setSynced] = useState(value);
-  if (synced !== value) {
-    setSynced(value);
-    setDraft(value ?? "");
-  }
-
-  // Typing a date fires onChange per segment ("…-01" then "…-15"); wait for a pause,
-  // blur or Enter so each change is saved (and logged) once.
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-
-  function commit(v: string) {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    if (v && !/^(19|20)\d{2}-\d{2}-\d{2}$/.test(v)) return;
-    if (v === (value ?? "")) return;
-    onCommit(v || null);
-  }
-
-  return (
-    <Input
-      id={id}
-      type="date"
-      className="h-7 bg-background text-[0.8rem]"
-      value={draft}
-      onChange={(e) => {
-        const v = e.target.value;
-        setDraft(v);
-        if (timer.current) clearTimeout(timer.current);
-        timer.current = setTimeout(() => commit(v), 800);
-      }}
-      onBlur={() => commit(draft)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") commit(draft);
-      }}
-    />
   );
 }
 
@@ -703,7 +700,7 @@ function OffersTable({
                   <DotBadge dotClassName={OFFER_STATUS_DOT[o.status]}>{OFFER_STATUS_LABEL[o.status]}</DotBadge>
                 </td>
                 <td className="px-2 py-2.5 whitespace-nowrap text-muted-foreground tabular-nums">
-                  {o.sent_on ? formatShortDate(o.sent_on) : "—"}
+                  {o.sent_on ? formatDateEt(o.sent_on) : "—"}
                 </td>
                 <td
                   className={cn(
@@ -712,7 +709,7 @@ function OffersTable({
                   )}
                   title={expired ? "Expired" : undefined}
                 >
-                  {o.valid_until ? formatShortDate(o.valid_until) : "—"}
+                  {o.valid_until ? formatDateEt(o.valid_until) : "—"}
                 </td>
                 <td className="py-2.5 pr-1.5">
                   {canManage && (

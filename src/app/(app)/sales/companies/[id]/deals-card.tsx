@@ -8,9 +8,9 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { latestOffer } from "@/lib/sales/pipeline";
 import { OPEN_STAGES } from "@/lib/sales/types";
-import { compareByFollowUp } from "@/lib/sales/urgency";
+import { compareDueDates } from "@/lib/sales/urgency";
 import { cn } from "@/lib/utils";
-import { FollowUpChip } from "../../follow-up-chip";
+import { DueChip } from "../../due-chip";
 import { formatEur } from "../../money";
 import { NewLeadDialog } from "../../new-lead-dialog";
 import { STAGE_DOT, STAGE_LABEL } from "../../stage";
@@ -38,7 +38,9 @@ export function DealsCard({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const open = deals.filter((d) => OPEN_STAGES.includes(d.stage)).sort(compareByFollowUp);
+  const open = deals.filter((d) => OPEN_STAGES.includes(d.stage)).sort(
+    (a, b) => compareDueDates(a.next_step?.due_on ?? null, b.next_step?.due_on ?? null)
+  );
   const closed = deals.filter((d) => !OPEN_STAGES.includes(d.stage));
 
   // The deal panel (DealSheet) is driven by ?deal= -- opening a deal only sets the param.
@@ -141,7 +143,7 @@ function DealRow({
       <div className="mt-1.5 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <DotBadge dotClassName={STAGE_DOT[deal.stage]}>{STAGE_LABEL[deal.stage]}</DotBadge>
-          {!muted && <FollowUpChip date={deal.next_follow_up_on} />}
+          {!muted && deal.next_step && <DueChip date={deal.next_step.due_on} />}
         </div>
         <Tooltip>
           <TooltipTrigger render={<span aria-label={`Owner: ${deal.owner.name}`} className="shrink-0" />}>
