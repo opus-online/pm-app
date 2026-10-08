@@ -99,7 +99,7 @@ export type ActivityView = {
   contact_name: string | null;
   actor: PersonRef | null;
   is_mine: boolean;
-  status: "planned" | "done";
+  status: "planned" | "done" | "cancelled";
   due_on: string | null;
   assignee: PersonRef | null;
   done_at: string | null;

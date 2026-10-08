@@ -511,6 +511,9 @@ export type Database = {
           actor_id: string | null
           assignee_id: string | null
           body: string
+          cancel_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
           client_id: string
           contact_id: string | null
           created_at: string
@@ -519,6 +522,8 @@ export type Database = {
           done_by: string | null
           done_comment: string | null
           due_on: string | null
+          edited_at: string | null
+          edited_by: string | null
           id: string
           kind: Database["public"]["Enums"]["activity_kind"]
           metadata: Json
@@ -529,6 +534,9 @@ export type Database = {
           actor_id?: string | null
           assignee_id?: string | null
           body?: string
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           client_id: string
           contact_id?: string | null
           created_at?: string
@@ -537,6 +545,8 @@ export type Database = {
           done_by?: string | null
           done_comment?: string | null
           due_on?: string | null
+          edited_at?: string | null
+          edited_by?: string | null
           id?: string
           kind: Database["public"]["Enums"]["activity_kind"]
           metadata?: Json
@@ -547,6 +557,9 @@ export type Database = {
           actor_id?: string | null
           assignee_id?: string | null
           body?: string
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           client_id?: string
           contact_id?: string | null
           created_at?: string
@@ -555,6 +568,8 @@ export type Database = {
           done_by?: string | null
           done_comment?: string | null
           due_on?: string | null
+          edited_at?: string | null
+          edited_by?: string | null
           id?: string
           kind?: Database["public"]["Enums"]["activity_kind"]
           metadata?: Json
@@ -572,6 +587,13 @@ export type Database = {
           {
             foreignKeyName: "crm_activities_assignee_id_fkey"
             columns: ["assignee_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crm_activities_cancelled_by_fkey"
+            columns: ["cancelled_by"]
             isOneToOne: false
             referencedRelation: "user_profiles"
             referencedColumns: ["id"]
@@ -600,6 +622,13 @@ export type Database = {
           {
             foreignKeyName: "crm_activities_done_by_fkey"
             columns: ["done_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "crm_activities_edited_by_fkey"
+            columns: ["edited_by"]
             isOneToOne: false
             referencedRelation: "user_profiles"
             referencedColumns: ["id"]
@@ -2216,6 +2245,10 @@ export type Database = {
         Returns: number
       }
       app_date_label: { Args: { d: string }; Returns: string }
+      cancel_step: {
+        Args: { p_id: string; p_reason: string }
+        Returns: undefined
+      }
       company_kind: { Args: { company: string }; Returns: string }
       complete_activity: {
         Args: {
@@ -2256,6 +2289,17 @@ export type Database = {
         Returns: Json
       }
       current_person_id: { Args: never; Returns: string }
+      edit_entry: {
+        Args: {
+          p_body: string
+          p_contact: string
+          p_deal: string
+          p_id: string
+          p_kind: Database["public"]["Enums"]["activity_kind"]
+          p_occurred_at: string
+        }
+        Returns: undefined
+      }
       has_credential_access: {
         Args: { cred_id: string; uid?: string }
         Returns: boolean
@@ -2347,10 +2391,22 @@ export type Database = {
         Args: { s: Database["public"]["Enums"]["deal_stage"] }
         Returns: string
       }
+      update_step: {
+        Args: {
+          p_assignee: string
+          p_body: string
+          p_contact: string
+          p_deal: string
+          p_due_on: string
+          p_id: string
+          p_kind: Database["public"]["Enums"]["activity_kind"]
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       activity_kind: "call" | "email" | "meeting" | "note" | "system"
-      activity_status: "planned" | "done"
+      activity_status: "planned" | "done" | "cancelled"
       billing_model: "fixed" | "hourly"
       budget_item_type:
         | "planned_cost"
@@ -2547,7 +2603,7 @@ export const Constants = {
   public: {
     Enums: {
       activity_kind: ["call", "email", "meeting", "note", "system"],
-      activity_status: ["planned", "done"],
+      activity_status: ["planned", "done", "cancelled"],
       billing_model: ["fixed", "hourly"],
       budget_item_type: [
         "planned_cost",

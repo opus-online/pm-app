@@ -9,25 +9,31 @@ import { normalizeRegCode } from "@/lib/sales/reg-code";
 import { pickProvided } from "@/lib/sales/pick-provided";
 import {
   activitySchema,
+  cancelStepSchema,
   companySchema,
   completeStepSchema,
   contactSchema,
   dealUpdateSchema,
+  editEntrySchema,
   newLeadSchema,
   offerSchema,
   planStepSchema,
   reassignStepSchema,
   rescheduleStepSchema,
+  updateStepSchema,
   type ActivityInput,
+  type CancelStepInput,
   type CompanyInput,
   type CompleteStepInput,
   type ContactInput,
   type DealUpdateInput,
+  type EditEntryInput,
   type NewLeadInput,
   type OfferInput,
   type PlanStepInput,
   type ReassignStepInput,
   type RescheduleStepInput,
+  type UpdateStepInput,
 } from "@/lib/validation/sales";
 
 type Result = { error: string } | { success: true };
@@ -72,6 +78,21 @@ function mapStepRpcError(error: { code: string; message: string }, dateMessage: 
   }
   if (error.code === "P0002") return "This step is already done or was removed.";
   if (error.code === "22004") return dateMessage;
+  return "Save failed. Try again.";
+}
+
+/** Friendly mapping for the round-3 RPCs (update_step/cancel_step/edit_entry): same 42501
+ * split as mapStepRpcError, plus 22023 (cross-company or closed-deal reference / system kind)
+ * and 22004 (a required field came through blank). notFoundMessage differs between steps
+ * (update_step/cancel_step) and entries (edit_entry) since P0002 means something different --
+ * "already done or removed" vs. "not editable". */
+function mapRound3RpcError(error: { code: string; message: string }, notFoundMessage: string): string {
+  if (error.code === "42501") {
+    return error.message.includes("Sales user") ? "That person doesn't have Sales access." : "Not authorized";
+  }
+  if (error.code === "P0002") return notFoundMessage;
+  if (error.code === "22023") return "That contact or deal belongs to another company or is closed.";
+  if (error.code === "22004") return "Fill in the required fields.";
   return "Save failed. Try again.";
 }
 
@@ -455,6 +476,106 @@ export async function reassignStepAction(input: ReassignStepInput): Promise<Resu
     resourceType: "crm_activity",
     resourceId: activity_id,
     metadata: { client_id: activity?.client_id ?? null, assignee_id },
+  });
+  revalidateSales(activity?.client_id);
+  return { success: true as const };
+}
+
+export async function updateStepAction(input: UpdateStepInput): Promise<Result> {
+  const current = await requirePermission("manage_sales");
+
+  const parsed = updateStepSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid step." };
+  const { activity_id, kind, body, due_on, assignee_id, contact_id, deal_id } = parsed.data;
+
+  const supabase = await createClient();
+  const { data: activity } = await supabase.from("crm_activities").select("client_id").eq("id", activity_id).single();
+
+  const { error } = await supabase.rpc("update_step", {
+    p_id: activity_id,
+    p_body: body,
+    p_kind: kind,
+    p_due_on: due_on,
+    p_assignee: assignee_id,
+    // p_contact/p_deal are non-nullable in the generated Args type; the SQL side treats a null
+    // as "clear the link", so a cleared field is cast past the (incorrect) non-null typing.
+    p_contact: contact_id as never,
+    p_deal: deal_id as never,
+  });
+  if (error) return { error: mapRound3RpcError(error, "This step is already done or was removed.") };
+
+  await writeAudit({
+    action: "company.saved",
+    actorId: current.user.id,
+    actorEmail: current.profile.email,
+    resourceType: "crm_activity",
+    resourceId: activity_id,
+    metadata: { client_id: activity?.client_id ?? null, status: "planned" },
+  });
+  revalidateSales(activity?.client_id);
+  return { success: true as const };
+}
+
+export async function cancelStepAction(input: CancelStepInput): Promise<Result> {
+  const current = await requirePermission("manage_sales");
+
+  const parsed = cancelStepSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid step." };
+  const { activity_id, reason } = parsed.data;
+
+  const supabase = await createClient();
+  const { data: activity } = await supabase.from("crm_activities").select("client_id").eq("id", activity_id).single();
+
+  const { error } = await supabase.rpc("cancel_step", {
+    p_id: activity_id,
+    // p_reason is non-nullable in the generated Args type; the SQL side already coalesces a
+    // null/blank reason, so an absent reason maps to "".
+    p_reason: reason ?? "",
+  });
+  if (error) return { error: mapRound3RpcError(error, "This step is already done or was removed.") };
+
+  await writeAudit({
+    action: "company.saved",
+    actorId: current.user.id,
+    actorEmail: current.profile.email,
+    resourceType: "crm_activity",
+    resourceId: activity_id,
+    metadata: { client_id: activity?.client_id ?? null, status: "cancelled" },
+  });
+  revalidateSales(activity?.client_id);
+  return { success: true as const };
+}
+
+export async function editEntryAction(input: EditEntryInput): Promise<Result> {
+  const current = await requirePermission("manage_sales");
+
+  const parsed = editEntrySchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid entry." };
+  const { activity_id, kind, body, occurred_at, contact_id, deal_id } = parsed.data;
+
+  const supabase = await createClient();
+  const { data: activity } = await supabase.from("crm_activities").select("client_id").eq("id", activity_id).single();
+
+  const { error } = await supabase.rpc("edit_entry", {
+    p_id: activity_id,
+    p_body: body,
+    p_kind: kind,
+    // p_occurred_at/p_contact/p_deal are non-nullable in the generated Args type; the SQL side
+    // treats a null occurred_at as "keep the existing value" and a null contact/deal as "clear
+    // the link", so each is cast past the (incorrect) non-null typing.
+    p_occurred_at: occurred_at as never,
+    p_contact: contact_id as never,
+    p_deal: deal_id as never,
+  });
+  if (error) return { error: mapRound3RpcError(error, "This entry can't be edited.") };
+
+  await writeAudit({
+    action: "company.saved",
+    actorId: current.user.id,
+    actorEmail: current.profile.email,
+    resourceType: "crm_activity",
+    resourceId: activity_id,
+    metadata: { client_id: activity?.client_id ?? null, kind, edited: true },
   });
   revalidateSales(activity?.client_id);
   return { success: true as const };

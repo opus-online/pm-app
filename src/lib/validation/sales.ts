@@ -9,6 +9,11 @@ export const httpUrl = z.preprocess(
   z.url({ protocol: /^https?$/, error: "Enter a valid http(s) URL" }).max(2000).nullable().optional().transform((v) => v ?? null)
 );
 const isoDate = z.preprocess(blankToNull, z.iso.date().nullable().optional().transform((v) => v ?? null));
+const isoDateTime = z.preprocess(
+  blankToNull,
+  z.iso.datetime({ offset: true }).nullable().optional().transform((v) => v ?? null)
+);
+const nullableUuid = z.preprocess(blankToNull, z.uuid().nullable().optional().transform((v) => v ?? null));
 
 export const companySchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
@@ -104,6 +109,27 @@ export const reassignStepSchema = z.object({
   activity_id: z.uuid(),
   assignee_id: z.uuid(),
 });
+export const updateStepSchema = z.object({
+  activity_id: z.uuid(),
+  kind: z.enum(ACTIVITY_KINDS),
+  body: z.string().trim().min(1, "Write something").max(2000),
+  due_on: z.iso.date(),
+  assignee_id: z.uuid(),
+  contact_id: nullableUuid,
+  deal_id: nullableUuid,
+});
+export const cancelStepSchema = z.object({
+  activity_id: z.uuid(),
+  reason: text(500),
+});
+export const editEntrySchema = z.object({
+  activity_id: z.uuid(),
+  kind: z.enum(ACTIVITY_KINDS),
+  body: z.string().trim().min(1, "Write something").max(5000),
+  occurred_at: isoDateTime,
+  contact_id: nullableUuid,
+  deal_id: nullableUuid,
+});
 export type CompanyInput = z.input<typeof companySchema>;
 export type ContactInput = z.input<typeof contactSchema>;
 export type NewLeadInput = z.input<typeof newLeadSchema>;
@@ -114,3 +140,6 @@ export type PlanStepInput = z.input<typeof planStepSchema>;
 export type CompleteStepInput = z.input<typeof completeStepSchema>;
 export type RescheduleStepInput = z.input<typeof rescheduleStepSchema>;
 export type ReassignStepInput = z.input<typeof reassignStepSchema>;
+export type UpdateStepInput = z.input<typeof updateStepSchema>;
+export type CancelStepInput = z.input<typeof cancelStepSchema>;
+export type EditEntryInput = z.input<typeof editEntrySchema>;
