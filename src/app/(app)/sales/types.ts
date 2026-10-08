@@ -25,7 +25,8 @@ export type CompanyRow = {
   reg_code: string | null;
   kind: "prospect" | "client";
   contacts: PipelineContact[];
-  open_deals: { id: string; stage: DealStage }[];
+  /** Open deals with title, stage and latest offer amount (null when none). */
+  open_deals: { id: string; title: string; stage: DealStage; offer: number | null }[];
   /** Sum of the latest offer of each open deal. */
   open_value: number;
   next_step: NextStep | null;

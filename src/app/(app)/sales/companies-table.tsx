@@ -9,6 +9,9 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SortableHead } from "@/components/data-table/sortable-head";
 import { useSort, type SortAccessors } from "@/components/data-table/use-sort";
 import { avatarTint } from "@/lib/avatar-tint";
@@ -133,7 +136,7 @@ export function CompaniesTable({ rows }: { rows: CompanyRow[] }) {
                     <ContactsCell contacts={row.contacts} />
                   </TableCell>
                   <TableCell>
-                    <DealsCell deals={row.open_deals} />
+                    <DealsCell companyId={row.id} deals={row.open_deals} />
                   </TableCell>
                   <TableCell
                     className={`text-right font-medium tabular-nums ${row.open_value ? "" : "text-muted-foreground"}`}
@@ -273,24 +276,56 @@ function ContactsCell({ contacts }: { contacts: PipelineContact[] }) {
   );
 }
 
-/** Open-deal count plus one stage-colored dot per deal, earliest stage first. */
-function DealsCell({ deals }: { deals: CompanyRow["open_deals"] }) {
+/** Open-deal count plus stage dots. One deal: opens it directly; several: a menu of deals. */
+function DealsCell({ companyId, deals }: { companyId: string; deals: CompanyRow["open_deals"] }) {
+  const router = useRouter();
   if (deals.length === 0) return <span className="text-sm text-muted-foreground">—</span>;
   const ordered = [...deals].sort((a, b) => DEAL_STAGES.indexOf(a.stage) - DEAL_STAGES.indexOf(b.stage));
-  const label = ordered.map((d) => STAGE_LABEL[d.stage]).join(" · ");
+  const href = (dealId: string) => `/sales/companies/${companyId}?deal=${dealId}`;
+  const summary = (
+    <>
+      <span className="text-sm font-medium tabular-nums">{deals.length}</span>
+      <span aria-hidden className="flex items-center gap-1">
+        {ordered.map((d) => (
+          <span key={d.id} className={`size-1.5 rounded-full ${STAGE_DOT[d.stage]}`} />
+        ))}
+      </span>
+    </>
+  );
+  const triggerClass =
+    "-mx-1.5 inline-flex items-center gap-2 rounded-md px-1.5 py-1 outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50";
+
+  if (ordered.length === 1) {
+    const d = ordered[0];
+    return (
+      <Link href={href(d.id)} className={triggerClass} aria-label={`Open deal ${d.title} (${STAGE_LABEL[d.stage]})`}>
+        {summary}
+      </Link>
+    );
+  }
+
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={<span aria-label={`${deals.length} open: ${label}`} className="inline-flex items-center gap-2" />}
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<button type="button" className={triggerClass} aria-label={`${deals.length} open deals`} />}
       >
-        <span className="text-sm font-medium tabular-nums">{deals.length}</span>
-        <span aria-hidden className="flex items-center gap-1">
+        {summary}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-72">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Open deals</DropdownMenuLabel>
           {ordered.map((d) => (
-            <span key={d.id} className={`size-1.5 rounded-full ${STAGE_DOT[d.stage]}`} />
+            <DropdownMenuItem key={d.id} onClick={() => router.push(href(d.id))} className="gap-2.5">
+              <span aria-hidden className={`size-2 shrink-0 rounded-full ${STAGE_DOT[d.stage]}`} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{d.title}</span>
+                <span className="block text-xs text-muted-foreground">{STAGE_LABEL[d.stage]}</span>
+              </span>
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatAmount(d.offer)}</span>
+            </DropdownMenuItem>
           ))}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

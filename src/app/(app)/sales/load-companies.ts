@@ -13,7 +13,7 @@ export async function loadCompanies(): Promise<CompanyRow[]> {
   const [clientsRes, contactsRes, dealsRes, stepsRes, prospectsRes, salesPeople] = await Promise.all([
     supabase.from("clients").select("id, name, reg_code"),
     supabase.from("client_contacts").select("id, client_id, name, phone, email").order("name"),
-    supabase.from("deals").select("id, client_id, stage, offers(amount, status, sent_on, created_at)"),
+    supabase.from("deals").select("id, client_id, title, stage, offers(amount, status, sent_on, created_at)"),
     supabase
       .from("company_next_steps")
       .select("client_id, activity_id, deal_id, due_on, kind, body, assignee_id, contact_id"),
@@ -46,8 +46,9 @@ export async function loadCompanies(): Promise<CompanyRow[]> {
       created_at: o.created_at,
     }));
     const entry = dealsByClient.get(d.client_id) ?? { deals: [], value: 0 };
-    entry.deals.push({ id: d.id, stage: d.stage });
-    entry.value += latestOffer(offers)?.amount ?? 0;
+    const offer = latestOffer(offers)?.amount ?? null;
+    entry.deals.push({ id: d.id, title: d.title, stage: d.stage, offer });
+    entry.value += offer ?? 0;
     dealsByClient.set(d.client_id, entry);
   }
 
