@@ -89,14 +89,17 @@ grant execute on function public.complete_activity(uuid, date, uuid, text) to au
 grant execute on function public.reschedule_activity(uuid, date) to authenticated;
 grant execute on function public.reassign_activity(uuid, uuid) to authenticated;
 
--- next step views (RLS of crm_activities applies: security_invoker)
+-- next step views (RLS of crm_activities applies: security_invoker). Steps on closed (won/lost)
+-- deals are not next steps; steps without a deal always count.
 create view public.company_next_steps with (security_invoker = true) as
   select distinct on (a.client_id) a.client_id, a.id as activity_id, a.deal_id, a.due_on, a.kind, a.body, a.assignee_id, a.contact_id
-  from public.crm_activities a where a.status = 'planned'
+  from public.crm_activities a left join public.deals d on d.id = a.deal_id
+  where a.status = 'planned' and (d.id is null or d.stage not in ('won','lost'))
   order by a.client_id, a.due_on, a.created_at, a.id;
 create view public.deal_next_steps with (security_invoker = true) as
   select distinct on (a.deal_id) a.deal_id, a.id as activity_id, a.client_id, a.due_on, a.kind, a.body, a.assignee_id, a.contact_id
-  from public.crm_activities a where a.status = 'planned' and a.deal_id is not null
+  from public.crm_activities a join public.deals d on d.id = a.deal_id
+  where a.status = 'planned' and d.stage not in ('won','lost')
   order by a.deal_id, a.due_on, a.created_at, a.id;
 grant select on public.company_next_steps, public.deal_next_steps to authenticated, service_role;
 

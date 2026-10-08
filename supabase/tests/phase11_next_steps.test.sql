@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(25);
+select plan(29);
 
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, encrypted_password, created_at, updated_at) values
   ('ad000000-0000-4000-8000-000000000001','00000000-0000-0000-0000-000000000000','authenticated','authenticated','s1@ns.test','{"full_name":"Sara"}','{}','',now(),now()),
@@ -64,12 +64,26 @@ select throws_ok($$ select public.complete_activity('ad300000-0000-4000-8000-000
 set local "request.jwt.claims" to '{"sub":"ad000000-0000-4000-8000-000000000003","role":"authenticated"}';
 select throws_ok($$ select public.complete_activity('ad300000-0000-4000-8000-000000000003','2026-10-21','ad000000-0000-4000-8000-000000000003',null) $$, '42501', null, 'non-sales cannot complete');
 select is((select count(*)::int from public.company_next_steps), 0, 'non-sales sees no next steps');
+
+-- 23-26 steps on closed (won/lost) deals are not next steps; reopening restores them
+set local "request.jwt.claims" to '{"sub":"ad000000-0000-4000-8000-000000000001","role":"authenticated"}';
+insert into public.crm_activities (id, client_id, deal_id, kind, body, status, due_on, assignee_id)
+  values ('ad300000-0000-4000-8000-000000000004','ad100000-0000-4000-8000-000000000001','ad200000-0000-4000-8000-000000000001','call','Early deal step','planned','2026-10-10','ad000000-0000-4000-8000-000000000001');
+update public.deals set stage='lost', lost_reason='Price' where id='ad200000-0000-4000-8000-000000000001';
+select is((select activity_id from public.company_next_steps where client_id='ad100000-0000-4000-8000-000000000001'),
+  'ad300000-0000-4000-8000-000000000003'::uuid, 'step on a lost deal is not the company next step');
+select is((select count(*)::int from public.deal_next_steps where deal_id='ad200000-0000-4000-8000-000000000001'), 0, 'lost deal has no deal next step');
+update public.deals set stage='negotiation', lost_reason=null where id='ad200000-0000-4000-8000-000000000001';
+select is((select activity_id from public.company_next_steps where client_id='ad100000-0000-4000-8000-000000000001'),
+  'ad300000-0000-4000-8000-000000000004'::uuid, 'reopened deal''s step is the company next step again');
+select is((select activity_id from public.deal_next_steps where deal_id='ad200000-0000-4000-8000-000000000001'),
+  'ad300000-0000-4000-8000-000000000004'::uuid, 'reopened deal has its next step again');
 reset role;
 
--- 23 follow-up column gone
+-- 27 follow-up column gone
 select hasnt_column('public', 'deals', 'next_follow_up_on', 'deal follow-up date retired');
 
--- 24-25 backfill exercised: migrate_deal_follow_ups() converts an open deal's legacy follow-up
+-- 28-29 backfill exercised: migrate_deal_follow_ups() converts an open deal's legacy follow-up
 -- into a planned step (and skips a won deal's), on a transaction-local temp column standing in
 -- for the now-dropped deals.next_follow_up_on.
 alter table public.deals add column next_follow_up_on date;

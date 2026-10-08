@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { getSalesAccess } from "../../access";
 import { compareDueDates } from "@/lib/sales/urgency";
+import { CLOSED_STAGES } from "@/lib/sales/types";
 import { loadCompanyOptions, loadSalesOwners, loadSalesPeople, toNextStep } from "../../load-pipeline";
 import type { ActivityView, CompanyView, ContactView, DealView, NextStepView } from "../../types";
 import type {
@@ -64,14 +65,16 @@ export default async function CompanyPage({
       .order("occurred_at", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(200),
-    // Open steps live in the Next steps card, not in the timeline.
+    // Open steps live in the Next steps card, not in the timeline. The deal's stage drops steps
+    // on closed deals, as the next-step views do.
     supabase
       .from("crm_activities")
-      .select("id, kind, body, due_on, deal_id, contact_id, assignee_id")
+      .select("id, kind, body, due_on, deal_id, contact_id, assignee_id, deals(stage)")
       .eq("client_id", id)
       .eq("status", "planned")
       .order("due_on")
-      .order("created_at"),
+      .order("created_at")
+      .order("id"),
     loadSalesPeople(),
     // New-deal dialog pickers, only for users who can create deals.
     canManage ? loadSalesOwners() : Promise.resolve([]),
@@ -113,8 +116,10 @@ export default async function CompanyPage({
     return { id: uid, name: p?.name ?? "Unknown", avatar_url: p?.avatar_url ?? null };
   };
 
-  // Already ordered due_on, created_at -- the same order deal_next_steps picks a deal's first from.
-  const plannedSteps = (stepsRes.data ?? []).flatMap((s) => {
+  // Already ordered due_on, created_at, id -- the same order deal_next_steps picks a deal's first
+  // from. Steps on won/lost deals are not next steps (same rule as the views and the KPI).
+  const plannedSteps = (stepsRes.data ?? []).flatMap(({ deals: deal, ...s }) => {
+    if (deal && CLOSED_STAGES.includes(deal.stage)) return [];
     const step = toNextStep({ ...s, activity_id: s.id }, peopleById);
     return step ? [step] : [];
   });

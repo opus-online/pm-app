@@ -5,7 +5,8 @@ import type { Database } from "@/lib/database.types";
 import type { NextStep } from "@/lib/sales/next-step";
 import { latestOffer } from "@/lib/sales/pipeline";
 import { compareDueDates } from "@/lib/sales/urgency";
-import type { OfferLite } from "@/lib/sales/types";
+import { appDayKey } from "@/lib/time-zone";
+import { CLOSED_STAGES, type OfferLite } from "@/lib/sales/types";
 import type { CompanyOption, PipelineRow, SalesOwnerOption } from "./types";
 
 // Deduped per request: loadPipeline, loadCompanies and loadSalesOwners all need it.
@@ -111,13 +112,28 @@ export async function loadPipeline(): Promise<PipelineRow[]> {
   );
 }
 
-/** Due dates of every open planned step the viewer can see (RLS: view_sales) -- the Steps due
- * KPI counts all of them, not just each company's earliest. */
-export async function loadPlannedStepDates(): Promise<{ due_on: string }[]> {
+/** Steps due KPI: every planned step due today or earlier (Tallinn day) that the viewer can see
+ * (RLS: view_sales) -- all of them, not just each company's earliest -- except steps on closed
+ * (won/lost) deals, which the next-step views leave out too. Two head-only counts: all due, minus
+ * the due ones whose deal is closed. */
+export async function loadStepsDueCount(): Promise<number> {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("crm_activities").select("due_on").eq("status", "planned");
-  if (error) throw new Error("Failed to load next steps");
-  return (data ?? []).flatMap((a) => (a.due_on ? [{ due_on: a.due_on }] : []));
+  const today = appDayKey(Date.now());
+  const [allRes, closedRes] = await Promise.all([
+    supabase
+      .from("crm_activities")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "planned")
+      .lte("due_on", today),
+    supabase
+      .from("crm_activities")
+      .select("id, deals!inner(stage)", { count: "exact", head: true })
+      .eq("status", "planned")
+      .lte("due_on", today)
+      .in("deals.stage", CLOSED_STAGES),
+  ]);
+  if (allRes.error || closedRes.error) throw new Error("Failed to load next steps");
+  return Math.max(0, (allRes.count ?? 0) - (closedRes.count ?? 0));
 }
 
 /** Who a deal can be assigned to: active users holding sales or admin, by name. */

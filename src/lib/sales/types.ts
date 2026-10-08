@@ -1,6 +1,7 @@
 export const DEAL_STAGES = ["new", "contacted", "offer_sent", "negotiation", "won", "lost"] as const;
 export type DealStage = (typeof DEAL_STAGES)[number];
 export const OPEN_STAGES: DealStage[] = ["new", "contacted", "offer_sent", "negotiation"];
+export const CLOSED_STAGES: DealStage[] = ["won", "lost"];
 export const DEAL_SOURCES = ["inbound", "outbound", "referral", "existing_client", "event", "other"] as const;
 export type DealSource = (typeof DEAL_SOURCES)[number];
 export const OFFER_STATUSES = ["draft", "sent", "accepted", "rejected"] as const;

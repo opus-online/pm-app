@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { CalendarPlusIcon, CheckIcon } from "lucide-react";
 import { toast } from "sonner";
 import { logActivityAction, planStepAction } from "@/app/actions/sales";
-import { ACTIVITY_KINDS } from "@/lib/sales/types";
+import { ACTIVITY_KINDS, OPEN_STAGES } from "@/lib/sales/types";
 import { formatDateEt } from "@/lib/sales/date-format";
 import { appDayKey, shiftDayKey } from "@/lib/time-zone";
 import { Button } from "@/components/ui/button";
@@ -109,6 +109,10 @@ export function ActivityComposer({
   }, [appliedNonce]);
 
   const planning = mode === "plan";
+  // A step on a won/lost deal would never show as a next step: plan mode offers open deals only,
+  // and a closed deal carried over from log mode / ?deal= falls back to None.
+  const dealOptions = planning ? deals.filter((d) => OPEN_STAGES.includes(d.stage)) : deals;
+  const selectedDealId = dealOptions.some((d) => d.id === dealId) ? dealId : NONE;
   const validDue = /^\d{4}-\d{2}-\d{2}$/.test(dueOn);
   const canSubmit = body.trim().length > 0 && !isPending && (!planning || (validDue && assigneeId !== ""));
 
@@ -127,7 +131,7 @@ export function ActivityComposer({
     if (!canSubmit) return;
     const refs = {
       client_id: companyId,
-      deal_id: dealId !== NONE ? dealId : null,
+      deal_id: selectedDealId !== NONE ? selectedDealId : null,
       contact_id: contactId !== NONE ? contactId : null,
       kind,
       body,
@@ -280,7 +284,7 @@ export function ActivityComposer({
             </Field>
             <Field id={`${ids}-deal`} label="Deal">
               <Select
-                value={dealId}
+                value={selectedDealId}
                 onValueChange={(v) => {
                   setDealId(v ?? NONE);
                   setKeepDeal(false);
@@ -288,12 +292,12 @@ export function ActivityComposer({
               >
                 <SelectTrigger id={`${ids}-deal`} size="sm" className="w-full">
                   <SelectValue>
-                    {(v: string) => deals.find((d) => d.id === v)?.title ?? <span className="text-muted-foreground">None</span>}
+                    {(v: string) => dealOptions.find((d) => d.id === v)?.title ?? <span className="text-muted-foreground">None</span>}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NONE}>None</SelectItem>
-                  {deals.map((d) => (
+                  {dealOptions.map((d) => (
                     <SelectItem key={d.id} value={d.id}>
                       {d.title}
                     </SelectItem>

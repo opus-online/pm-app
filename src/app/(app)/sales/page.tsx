@@ -3,7 +3,7 @@ import { pipelineTotals } from "@/lib/sales/pipeline";
 import { getSalesAccess } from "./access";
 import { CompaniesTable } from "./companies-table";
 import { loadCompanies } from "./load-companies";
-import { loadCompanyOptions, loadPipeline, loadPlannedStepDates, loadSalesOwners } from "./load-pipeline";
+import { loadCompanyOptions, loadPipeline, loadSalesOwners, loadStepsDueCount } from "./load-pipeline";
 import { NewLeadDialog } from "./new-lead-dialog";
 import { formatEur } from "./money";
 import { PipelineBoard } from "./pipeline-board";
@@ -24,12 +24,12 @@ export default async function SalesPage({
   const { view: viewParam } = await searchParams;
   const view: PipelineView = viewParam === "board" ? "board" : "list";
   const manage = canManage;
-  // Companies drive the list, deals the board and the money KPIs, every planned step the Steps
-  // due KPI. The dialog's pickers are only loaded for users who can create leads.
-  const [companies, rows, steps, owners, companyOptions] = await Promise.all([
+  // Companies drive the list, deals the board and the money KPIs, the due-step count the
+  // Steps due KPI. The dialog's pickers are only loaded for users who can create leads.
+  const [companies, rows, stepsDue, owners, companyOptions] = await Promise.all([
     loadCompanies(),
     loadPipeline(),
-    loadPlannedStepDates(),
+    loadStepsDueCount(),
     manage ? loadSalesOwners() : Promise.resolve([]),
     manage ? loadCompanyOptions() : Promise.resolve([]),
   ]);
@@ -56,7 +56,7 @@ export default async function SalesPage({
         </div>
       </div>
 
-      <PipelineKpis rows={rows} steps={steps} />
+      <PipelineKpis rows={rows} stepsDue={stepsDue} />
 
       {view === "board" ? (
         <PipelineBoard rows={rows} canManage={manage} />

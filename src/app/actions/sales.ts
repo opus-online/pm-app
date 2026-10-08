@@ -70,7 +70,7 @@ function mapStepRpcError(error: { code: string; message: string }, dateMessage: 
   if (error.code === "42501") {
     return error.message.includes("Sales user") ? "That person doesn't have Sales access." : "Not authorized";
   }
-  if (error.code === "P0002") return "This step is already done.";
+  if (error.code === "P0002") return "This step is already done or was removed.";
   if (error.code === "22004") return dateMessage;
   return "Save failed. Try again.";
 }

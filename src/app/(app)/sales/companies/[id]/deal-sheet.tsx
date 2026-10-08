@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/sheet";
 import { DESTRUCTIVE_ACTION_CLASS } from "@/lib/action-styles";
 import { latestOffer, offersNewestFirst } from "@/lib/sales/pipeline";
-import { DEAL_SOURCES, DEAL_STAGES, type DealSource, type DealStage } from "@/lib/sales/types";
+import { DEAL_SOURCES, DEAL_STAGES, OPEN_STAGES, type DealSource, type DealStage } from "@/lib/sales/types";
 import { appDayKey } from "@/lib/time-zone";
 import { cn } from "@/lib/utils";
 import type { DealUpdateInput } from "@/lib/validation/sales";
@@ -327,7 +327,7 @@ function DealSheetBody({
             <dt className={FIELD_LABEL}>Next step</dt>
             <dd className="flex min-h-7 items-center gap-2 text-sm">
               <NextStepLine step={deal.next_step} />
-              {canManage && (
+              {canManage && OPEN_STAGES.includes(deal.stage) && (
                 <Button
                   size="xs"
                   variant="ghost"

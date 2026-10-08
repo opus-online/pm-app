@@ -107,6 +107,7 @@ function MarkDoneForm({
       }
       onClose();
       toast.success("Step done", {
+        duration: 10_000,
         action: { label: "Plan next step", onClick: () => onDone(prefill) },
       });
     });
