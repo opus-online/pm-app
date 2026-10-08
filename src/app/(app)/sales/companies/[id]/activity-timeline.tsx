@@ -126,7 +126,7 @@ export function ActivityTimeline({
                               }
                             : undefined
                         }
-                        onDelete={editable && a.is_mine ? () => setDeleting(a) : undefined}
+                        onDelete={editable ? () => setDeleting(a) : undefined}
                         onOpenDeal={
                           showDeal && a.deal_id
                             ? () => router.replace(`${pathname}?deal=${a.deal_id}`, { scroll: false })

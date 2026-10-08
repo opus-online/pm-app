@@ -333,7 +333,7 @@ export async function logActivityAction(input: ActivityInput): Promise<Result> {
 
 export async function deleteActivityAction(activityId: string): Promise<Result> {
   if (!isUuid(activityId)) return { error: "Invalid activity." };
-  const current = await requirePermission("manage_sales");
+  await requirePermission("manage_sales");
 
   const supabase = await createClient();
   const { data: activity } = await supabase.from("crm_activities").select("client_id").eq("id", activityId).single();
@@ -342,14 +342,7 @@ export async function deleteActivityAction(activityId: string): Promise<Result> 
   if (error) return { error: "Delete failed. Try again." };
   if (!deleted || deleted.length === 0) return { error: "Delete failed." };
 
-  await writeAudit({
-    action: "company.saved",
-    actorId: current.user.id,
-    actorEmail: current.profile.email,
-    resourceType: "crm_activity",
-    resourceId: activityId,
-    metadata: { client_id: activity?.client_id ?? null, deleted: true },
-  });
+  // Audited by the crm_activities_audit_delete trigger (who, when, deleted text).
   revalidateSales(activity?.client_id);
   return { success: true as const };
 }
