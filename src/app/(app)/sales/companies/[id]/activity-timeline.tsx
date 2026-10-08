@@ -111,7 +111,7 @@ export function ActivityTimeline({
                 <ol className="relative">
                   {g.items.map((a, i) => {
                     // Logged entries (not automatic ones, not cancelled steps) are editable by any
-                    // Sales user; delete stays with the author.
+                    // Sales user, and any Sales user can delete them (each delete is audited).
                     const editable = canManage && a.kind !== "system" && a.status === "done";
                     return (
                       <TimelineItem
