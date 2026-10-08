@@ -65,7 +65,7 @@ set local "request.jwt.claims" to '{"sub":"ac000000-0000-4000-8000-000000000004"
 with d as (update public.crm_activities set body='hacked' where id='ac300000-0000-4000-8000-000000000001' returning 1)
 select is((select count(*)::int from d), 0, 'a different sales user cannot update someone else''s activity');
 with d as (delete from public.crm_activities where id='ac300000-0000-4000-8000-000000000001' returning 1)
-select is((select count(*)::int from d), 0, 'a different sales user cannot delete someone else''s activity');
+select is((select count(*)::int from d), 1, 'a different sales user can delete someone else''s logged activity (any Sales user, audited)');
 
 -- role change keeps sales add-on
 set local "request.jwt.claims" to '{"sub":"ac000000-0000-4000-8000-000000000001","role":"authenticated"}';
