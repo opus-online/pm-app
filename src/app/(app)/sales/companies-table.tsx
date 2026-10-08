@@ -12,30 +12,33 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { PersonAvatar } from "@/components/person-avatar";
 import { SortableHead } from "@/components/data-table/sortable-head";
 import { useSort, type SortAccessors } from "@/components/data-table/use-sort";
 import { avatarTint } from "@/lib/avatar-tint";
+import { matchesStepFilter } from "@/lib/sales/list-filters";
 import { normalizeRegCode } from "@/lib/sales/reg-code";
 import { DEAL_STAGES } from "@/lib/sales/types";
 import { initials } from "../projects/types";
 import { formatAmount } from "./money";
 import { NextStepCell } from "./next-step-cell";
 import {
-  ALL, EMPTY_FILTERS, PipelineFilters, type PipelineFilterState,
+  ALL, EMPTY_FILTERS, NOBODY, PipelineFilters, type PipelineFilterState,
 } from "./pipeline-filters";
 import { STAGE_DOT, STAGE_LABEL } from "./stage";
 import { TruncateTooltip } from "./truncate-tooltip";
-import type { CompanyRow, PipelineContact } from "./types";
+import type { CompanyRow, PipelineContact, SalesOwnerOption } from "./types";
 
 const PAGE_SIZE = 10;
 
-type SortKey = "company" | "deals" | "offer" | "next_step";
+type SortKey = "company" | "deals" | "offer" | "next_step" | "responsible";
 
 const ACCESSORS: SortAccessors<CompanyRow, SortKey> = {
   company: (r) => r.name,
   deals: (r) => r.open_deals.length,
   offer: (r) => r.open_value || null,
   next_step: (r) => r.next_step?.due_on ?? null,
+  responsible: (r) => r.next_step?.assignee?.name ?? null,
 };
 
 /** Digits-only view of a phone-ish string (same matching rule as the clients search). */
@@ -62,17 +65,34 @@ function matchesQuery(row: CompanyRow, query: string): boolean {
   );
 }
 
-export function CompaniesTable({ rows }: { rows: CompanyRow[] }) {
+export function CompaniesTable({ rows, people }: { rows: CompanyRow[]; people: SalesOwnerOption[] }) {
   const router = useRouter();
   const [filters, setFilters] = useState<PipelineFilterState>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
 
+  // Responsible options: the given Sales people plus anyone currently holding a step (e.g. a
+  // person no longer assignable), by name.
+  const responsibleOptions = useMemo(() => {
+    const byId = new Map(people.map((p) => [p.id, p]));
+    for (const row of rows) {
+      const a = row.next_step?.assignee;
+      if (a && !byId.has(a.id)) byId.set(a.id, a);
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [people, rows]);
+
   const filtered = useMemo(() => {
     const query = filters.q.trim().toLowerCase();
+    const stepFilter = {
+      from: filters.from || null,
+      to: filters.to || null,
+      responsible: filters.responsible === ALL ? null : filters.responsible === NOBODY ? ("nobody" as const) : filters.responsible,
+    };
     return rows.filter((row) => {
       if (filters.stage !== ALL && !row.open_deals.some((d) => d.stage === filters.stage)) return false;
       if (filters.step === "with" && !row.next_step) return false;
       if (filters.step === "without" && row.next_step) return false;
+      if (!matchesStepFilter(row.next_step, stepFilter)) return false;
       if (query && !matchesQuery(row, query)) return false;
       return true;
     });
@@ -90,7 +110,7 @@ export function CompaniesTable({ rows }: { rows: CompanyRow[] }) {
 
   return (
     <div className="space-y-4">
-      <PipelineFilters value={filters} onChange={changeFilters} />
+      <PipelineFilters value={filters} onChange={changeFilters} people={responsibleOptions} />
       {sorted.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
           <p>No companies match these filters.</p>
@@ -110,11 +130,12 @@ export function CompaniesTable({ rows }: { rows: CompanyRow[] }) {
           <Table className="min-w-3xl table-fixed [&_tbody_td]:py-4">
             <TableHeader>
               <TableRow>
-                <SortableHead label="Company" sortKey="company" sort={sort} onToggle={toggle} className="w-[25%]" />
-                <TableHead className="w-[22%]">Contacts</TableHead>
-                <SortableHead label="Deals" sortKey="deals" sort={sort} onToggle={toggle} className="w-[8%]" />
-                <SortableHead label="Offer (€)" sortKey="offer" sort={sort} onToggle={toggle} className="w-[10%] text-right [&>button]:-mr-1 [&>button]:ml-0" />
-                <SortableHead label="Next step" sortKey="next_step" sort={sort} onToggle={toggle} className="w-[35%]" />
+                <SortableHead label="Company" sortKey="company" sort={sort} onToggle={toggle} className="w-[21%]" />
+                <TableHead className="w-[18%]">Contacts</TableHead>
+                <SortableHead label="Deals" sortKey="deals" sort={sort} onToggle={toggle} className="w-[9%]" />
+                <SortableHead label="Offer (€)" sortKey="offer" sort={sort} onToggle={toggle} className="w-[9%] text-right [&>button]:-mr-1 [&>button]:ml-0" />
+                <SortableHead label="Next step" sortKey="next_step" sort={sort} onToggle={toggle} className="w-[29%]" />
+                <SortableHead label="Responsible" sortKey="responsible" sort={sort} onToggle={toggle} className="w-[14%]" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -145,6 +166,9 @@ export function CompaniesTable({ rows }: { rows: CompanyRow[] }) {
                   </TableCell>
                   <TableCell>
                     <NextStepCell step={row.next_step} />
+                  </TableCell>
+                  <TableCell>
+                    <ResponsibleCell assignee={row.next_step?.assignee ?? null} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -192,6 +216,17 @@ export function CompaniesTable({ rows }: { rows: CompanyRow[] }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The next step's assignee: avatar + full name, or a dash. */
+function ResponsibleCell({ assignee }: { assignee: NonNullable<CompanyRow["next_step"]>["assignee"] }) {
+  if (!assignee) return <span className="text-sm text-muted-foreground">—</span>;
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <PersonAvatar name={assignee.name} avatarUrl={assignee.avatar_url} className="size-6 text-[9px]" />
+      <TruncateTooltip text={assignee.name} className="max-w-40 text-sm font-medium" />
     </div>
   );
 }

@@ -25,12 +25,13 @@ export default async function SalesPage({
   const view: PipelineView = viewParam === "board" ? "board" : "list";
   const manage = canManage;
   // Companies drive the list, deals the board and the money KPIs, the due-step count the
-  // Steps due KPI. The dialog's pickers are only loaded for users who can create leads.
+  // Steps due KPI. Sales people feed the Responsible filter (and the new-lead owner picker); the
+  // company picker is only loaded for users who can create leads.
   const [companies, rows, stepsDue, owners, companyOptions] = await Promise.all([
     loadCompanies(),
     loadPipeline(),
     loadStepsDueCount(),
-    manage ? loadSalesOwners() : Promise.resolve([]),
+    loadSalesOwners(),
     manage ? loadCompanyOptions() : Promise.resolve([]),
   ]);
   const totals = pipelineTotals(rows);
@@ -61,7 +62,7 @@ export default async function SalesPage({
       {view === "board" ? (
         <PipelineBoard rows={rows} canManage={manage} />
       ) : (
-        <CompaniesTable rows={companies} />
+        <CompaniesTable rows={companies} people={owners} />
       )}
     </div>
   );
