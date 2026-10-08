@@ -534,17 +534,17 @@ insert into public.client_contacts (id, client_id, name, first_name, last_name, 
   ('c2000006-0000-4000-8000-000000000006','c1000005-0000-4000-8000-000000000005','','Toomas','Kuusk','male',null,'+372 5100 0006','Procurement',null)
 on conflict (id) do nothing;
 
-insert into public.deals (id, client_id, title, stage, source, owner_id, next_follow_up_on, lost_reason, created_at) values
-  ('c3000001-0000-4000-8000-000000000001','c1000001-0000-4000-8000-000000000001','B2B ordering portal','negotiation','inbound','10000007-0000-4000-8000-000000000007', current_date - 2, null, now() - interval '70 days'),
-  ('c3000002-0000-4000-8000-000000000002','c1000001-0000-4000-8000-000000000001','Website refresh','offer_sent','existing_client','10000007-0000-4000-8000-000000000007', current_date, null, now() - interval '30 days'),
-  ('c3000003-0000-4000-8000-000000000003','c1000002-0000-4000-8000-000000000002','Patient booking app','contacted','referral','10000002-0000-4000-8000-000000000002', current_date + 1, null, now() - interval '20 days'),
-  ('c3000004-0000-4000-8000-000000000004','c1000003-0000-4000-8000-000000000003','Fleet tracking dashboard','new','outbound','10000007-0000-4000-8000-000000000007', current_date + 5, null, now() - interval '5 days'),
-  ('c3000005-0000-4000-8000-000000000005','c1000004-0000-4000-8000-000000000004','Customer portal MVP','offer_sent','event','10000002-0000-4000-8000-000000000002', current_date + 12, null, now() - interval '40 days'),
-  ('c3000006-0000-4000-8000-000000000006','c1000005-0000-4000-8000-000000000005','ERP integration','lost','inbound','10000007-0000-4000-8000-000000000007', null, 'Chose a cheaper local vendor', now() - interval '90 days'),
-  ('c3000007-0000-4000-8000-000000000007','c1000003-0000-4000-8000-000000000003','Warehouse scanner app','new','inbound','10000007-0000-4000-8000-000000000007', null, null, now() - interval '2 days'),
-  ('c3000008-0000-4000-8000-000000000008','20000001-0000-4000-8000-000000000001','Loyalty app phase 2','won','existing_client','10000002-0000-4000-8000-000000000002', null, null, now() - interval '60 days'),
-  ('c3000009-0000-4000-8000-000000000009','c1000002-0000-4000-8000-000000000002','SEO retainer','negotiation','outbound','10000007-0000-4000-8000-000000000007', current_date - 6, null, now() - interval '50 days'),
-  ('c3000010-0000-4000-8000-000000000010','c1000004-0000-4000-8000-000000000004','Data warehouse audit','contacted','other','10000007-0000-4000-8000-000000000007', current_date + 30, null, now() - interval '10 days')
+insert into public.deals (id, client_id, title, stage, source, owner_id, lost_reason, created_at) values
+  ('c3000001-0000-4000-8000-000000000001','c1000001-0000-4000-8000-000000000001','B2B ordering portal','negotiation','inbound','10000007-0000-4000-8000-000000000007', null, now() - interval '70 days'),
+  ('c3000002-0000-4000-8000-000000000002','c1000001-0000-4000-8000-000000000001','Website refresh','offer_sent','existing_client','10000007-0000-4000-8000-000000000007', null, now() - interval '30 days'),
+  ('c3000003-0000-4000-8000-000000000003','c1000002-0000-4000-8000-000000000002','Patient booking app','contacted','referral','10000002-0000-4000-8000-000000000002', null, now() - interval '20 days'),
+  ('c3000004-0000-4000-8000-000000000004','c1000003-0000-4000-8000-000000000003','Fleet tracking dashboard','new','outbound','10000007-0000-4000-8000-000000000007', null, now() - interval '5 days'),
+  ('c3000005-0000-4000-8000-000000000005','c1000004-0000-4000-8000-000000000004','Customer portal MVP','offer_sent','event','10000002-0000-4000-8000-000000000002', null, now() - interval '40 days'),
+  ('c3000006-0000-4000-8000-000000000006','c1000005-0000-4000-8000-000000000005','ERP integration','lost','inbound','10000007-0000-4000-8000-000000000007', 'Chose a cheaper local vendor', now() - interval '90 days'),
+  ('c3000007-0000-4000-8000-000000000007','c1000003-0000-4000-8000-000000000003','Warehouse scanner app','new','inbound','10000007-0000-4000-8000-000000000007', null, now() - interval '2 days'),
+  ('c3000008-0000-4000-8000-000000000008','20000001-0000-4000-8000-000000000001','Loyalty app phase 2','won','existing_client','10000002-0000-4000-8000-000000000002', null, now() - interval '60 days'),
+  ('c3000009-0000-4000-8000-000000000009','c1000002-0000-4000-8000-000000000002','SEO retainer','negotiation','outbound','10000007-0000-4000-8000-000000000007', null, now() - interval '50 days'),
+  ('c3000010-0000-4000-8000-000000000010','c1000004-0000-4000-8000-000000000004','Data warehouse audit','contacted','other','10000007-0000-4000-8000-000000000007', null, now() - interval '10 days')
 on conflict (id) do nothing;
 
 insert into public.offers (id, deal_id, title, amount, sent_on, valid_until, status, link_url, note) values
