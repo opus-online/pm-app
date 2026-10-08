@@ -10,6 +10,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { formatDateEt } from "@/lib/sales/date-format";
+import { DATE_PRESETS, presetRange } from "@/lib/sales/date-presets";
+import { appDayKey } from "@/lib/time-zone";
 import { OPEN_STAGES, type DealStage } from "@/lib/sales/types";
 import { cn } from "@/lib/utils";
 import { STAGE_DOT, STAGE_LABEL } from "./stage";
@@ -129,6 +131,21 @@ function DateRangeFilter({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 space-y-3">
         <div className="text-xs font-medium text-muted-foreground">Next step date</div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {DATE_PRESETS.map((p) => (
+            <Button
+              key={p.value}
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const r = presetRange(p.value, appDayKey(Date.now()));
+                onChange(r.from ?? "", r.to ?? "");
+              }}
+            >
+              {p.label}
+            </Button>
+          ))}
+        </div>
         <div className="grid gap-1.5">
           <Label htmlFor="step-from">From</Label>
           <Input
@@ -163,11 +180,14 @@ export function PipelineFilters({
   value,
   onChange,
   people,
+  currentUserId,
 }: {
   value: PipelineFilterState;
   onChange: (next: PipelineFilterState) => void;
   /** Who can be picked in the Responsible filter (Sales people, by name). */
   people: SalesOwnerOption[];
+  /** The viewer -- offered as "Me" at the top of the Responsible filter. */
+  currentUserId: string;
 }) {
   const personById = new Map(people.map((p) => [p.id, p]));
   const set = <K extends keyof PipelineFilterState>(key: K, v: PipelineFilterState[K]) =>
@@ -225,6 +245,7 @@ export function PipelineFilters({
             {(v: string) => {
               if (v === ALL) return "Anyone responsible";
               if (v === NOBODY) return <NobodyOption />;
+              if (v === currentUserId) return "Me";
               const person = personById.get(v);
               return person ? <PersonOption person={person} /> : "Anyone responsible";
             }}
@@ -232,7 +253,8 @@ export function PipelineFilters({
         </SelectTrigger>
         <SelectContent className="min-w-52">
           <SelectItem value={ALL}>Anyone responsible</SelectItem>
-          {people.map((p) => (
+          <SelectItem value={currentUserId}>Me</SelectItem>
+          {people.filter((p) => p.id !== currentUserId).map((p) => (
             <SelectItem key={p.id} value={p.id}>
               <PersonOption person={p} />
             </SelectItem>

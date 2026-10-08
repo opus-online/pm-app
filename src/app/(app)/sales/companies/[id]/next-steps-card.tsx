@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { CalendarClockIcon, CheckIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, UserRoundIcon, UserRoundPenIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
-import { reassignStepAction, rescheduleStepAction } from "@/app/actions/sales";
+import { reassignStepAction, rescheduleStepAction, updateStepAction } from "@/app/actions/sales";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -170,7 +171,7 @@ function StepRow({
   useUnstickRefresh(isPending);
   const [editingDate, setEditingDate] = useState(false);
   // Shown until the revalidated render brings the saved value (or dropped on failure).
-  const [patch, setPatch] = useState<{ due_on?: string; assignee?: Person } | null>(null);
+  const [patch, setPatch] = useState<{ due_on?: string; assignee?: Person; body?: string } | null>(null);
   const [synced, setSynced] = useState(step);
   if (synced !== step) {
     setSynced(step);
@@ -178,9 +179,14 @@ function StepRow({
   }
   const dueOn = patch?.due_on ?? step.due_on;
   const assignee = patch?.assignee ?? step.assignee;
+  const body = patch?.body ?? step.body;
+  const [editingText, setEditingText] = useState(false);
+  const [draft, setDraft] = useState("");
+  // Enter / Escape close the editor; the blur that may follow must not save a second time.
+  const textClosed = useRef(false);
   const { icon: Icon, circle, label } = KIND_META[step.kind];
 
-  function run(optimistic: { due_on?: string; assignee?: Person }, call: () => Promise<{ error: string } | { success: true }>) {
+  function run(optimistic: { due_on?: string; assignee?: Person; body?: string }, call: () => Promise<{ error: string } | { success: true }>) {
     setPatch((p) => ({ ...p, ...optimistic }));
     startTransition(async () => {
       try {
@@ -203,6 +209,39 @@ function StepRow({
     run({ assignee: person }, () => reassignStepAction({ activity_id: step.activity_id, assignee_id: person.id }));
   }
 
+  function startTextEdit() {
+    // update_step needs an assignee; a step without one goes through the full edit dialog.
+    if (!step.assignee) {
+      onEdit();
+      return;
+    }
+    textClosed.current = false;
+    setDraft(body);
+    setEditingText(true);
+  }
+
+  function closeText(save: boolean) {
+    if (textClosed.current) return;
+    textClosed.current = true;
+    setEditingText(false);
+    const next = draft.trim();
+    if (!save || !next || next === step.body || !step.assignee) return;
+    const assigneeId = step.assignee.id;
+    // Text only: kind, date, assignee, contact and deal go back unchanged (so no moved/reassigned
+    // entry is logged).
+    run({ body: next }, () =>
+      updateStepAction({
+        activity_id: step.activity_id,
+        kind: step.kind,
+        body: next,
+        due_on: step.due_on,
+        assignee_id: assigneeId,
+        contact_id: step.contact_id,
+        deal_id: step.deal_id,
+      })
+    );
+  }
+
   return (
     <li
       className={cn(
@@ -218,7 +257,39 @@ function StepRow({
         >
           <Icon className="size-3.5" />
         </span>
-        <TruncateTooltip text={step.body} className="flex-1 text-sm font-medium" />
+        {canManage && editingText ? (
+          <Input
+            aria-label="Step text"
+            autoFocus
+            maxLength={2000}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => closeText(true)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                closeText(true);
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                closeText(false);
+              }
+            }}
+            className="h-7 min-w-0 flex-1 bg-background text-sm font-medium"
+          />
+        ) : canManage ? (
+          <button
+            type="button"
+            aria-label="Edit step text"
+            disabled={isPending}
+            onClick={startTextEdit}
+            className="-mx-1 min-w-0 flex-1 cursor-text rounded-md px-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-default"
+          >
+            <TruncateTooltip text={body} className="text-sm font-medium" />
+          </button>
+        ) : (
+          <TruncateTooltip text={body} className="flex-1 text-sm font-medium" />
+        )}
         {editingDate ? (
           <DateCommitInput
             value={dueOn}

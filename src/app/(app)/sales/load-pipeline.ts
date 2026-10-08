@@ -115,23 +115,26 @@ export async function loadPipeline(): Promise<PipelineRow[]> {
 /** Steps due KPI: every planned step due today or earlier (Tallinn day) that the viewer can see
  * (RLS: view_sales) -- all of them, not just each company's earliest -- except steps on closed
  * (won/lost) deals, which the next-step views leave out too. Two head-only counts: all due, minus
- * the due ones whose deal is closed. */
-export async function loadStepsDueCount(): Promise<number> {
+ * the due ones whose deal is closed. With `assigneeId`, only that person's steps. */
+export async function loadStepsDueCount(assigneeId?: string): Promise<number> {
   const supabase = await createClient();
   const today = appDayKey(Date.now());
-  const [allRes, closedRes] = await Promise.all([
-    supabase
-      .from("crm_activities")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "planned")
-      .lte("due_on", today),
-    supabase
-      .from("crm_activities")
-      .select("id, deals!inner(stage)", { count: "exact", head: true })
-      .eq("status", "planned")
-      .lte("due_on", today)
-      .in("deals.stage", CLOSED_STAGES),
-  ]);
+  let allQ = supabase
+    .from("crm_activities")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "planned")
+    .lte("due_on", today);
+  let closedQ = supabase
+    .from("crm_activities")
+    .select("id, deals!inner(stage)", { count: "exact", head: true })
+    .eq("status", "planned")
+    .lte("due_on", today)
+    .in("deals.stage", CLOSED_STAGES);
+  if (assigneeId) {
+    allQ = allQ.eq("assignee_id", assigneeId);
+    closedQ = closedQ.eq("assignee_id", assigneeId);
+  }
+  const [allRes, closedRes] = await Promise.all([allQ, closedQ]);
   if (allRes.error || closedRes.error) throw new Error("Failed to load next steps");
   return Math.max(0, (allRes.count ?? 0) - (closedRes.count ?? 0));
 }

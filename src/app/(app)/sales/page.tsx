@@ -24,13 +24,14 @@ export default async function SalesPage({
   const { view: viewParam } = await searchParams;
   const view: PipelineView = viewParam === "board" ? "board" : "list";
   const manage = canManage;
-  // Companies drive the list, deals the board and the money KPIs, the due-step count the
-  // Steps due KPI. Sales people feed the Responsible filter (and the new-lead owner picker); the
+  // Companies drive the list, deals the board and the money KPIs, the due-step counts (mine / all)
+  // the Steps due KPI. Sales people feed the Responsible filter (and the new-lead owner picker); the
   // company picker is only loaded for users who can create leads.
-  const [companies, rows, stepsDue, owners, companyOptions] = await Promise.all([
+  const [companies, rows, stepsDueAll, stepsDueMine, owners, companyOptions] = await Promise.all([
     loadCompanies(),
     loadPipeline(),
     loadStepsDueCount(),
+    loadStepsDueCount(current.user.id),
     loadSalesOwners(),
     manage ? loadCompanyOptions() : Promise.resolve([]),
   ]);
@@ -57,12 +58,12 @@ export default async function SalesPage({
         </div>
       </div>
 
-      <PipelineKpis rows={rows} stepsDue={stepsDue} />
+      <PipelineKpis rows={rows} stepsDueMine={stepsDueMine} stepsDueAll={stepsDueAll} />
 
       {view === "board" ? (
         <PipelineBoard rows={rows} canManage={manage} />
       ) : (
-        <CompaniesTable rows={companies} people={owners} />
+        <CompaniesTable rows={companies} people={owners} currentUserId={current.user.id} />
       )}
     </div>
   );

@@ -65,7 +65,15 @@ function matchesQuery(row: CompanyRow, query: string): boolean {
   );
 }
 
-export function CompaniesTable({ rows, people }: { rows: CompanyRow[]; people: SalesOwnerOption[] }) {
+export function CompaniesTable({
+  rows,
+  people,
+  currentUserId,
+}: {
+  rows: CompanyRow[];
+  people: SalesOwnerOption[];
+  currentUserId: string;
+}) {
   const router = useRouter();
   const [filters, setFilters] = useState<PipelineFilterState>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
@@ -110,7 +118,12 @@ export function CompaniesTable({ rows, people }: { rows: CompanyRow[]; people: S
 
   return (
     <div className="space-y-4">
-      <PipelineFilters value={filters} onChange={changeFilters} people={responsibleOptions} />
+      <PipelineFilters
+        value={filters}
+        onChange={changeFilters}
+        people={responsibleOptions}
+        currentUserId={currentUserId}
+      />
       {sorted.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
           <p>No companies match these filters.</p>
