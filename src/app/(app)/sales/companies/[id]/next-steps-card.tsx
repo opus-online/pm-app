@@ -280,7 +280,7 @@ function StepRow({
         ) : canManage ? (
           <button
             type="button"
-            aria-label="Edit step text"
+            aria-label={`Edit step: ${body}`}
             disabled={isPending}
             onClick={startTextEdit}
             className="-mx-1 min-w-0 flex-1 cursor-text rounded-md px-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-default"
