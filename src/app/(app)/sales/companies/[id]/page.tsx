@@ -6,6 +6,7 @@ import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { getSalesAccess } from "../../access";
+import { timelineAt } from "@/lib/sales/timeline-filter";
 import { compareDueDates } from "@/lib/sales/urgency";
 import { CLOSED_STAGES } from "@/lib/sales/types";
 import { loadCompanyOptions, loadSalesOwners, loadSalesPeople, toNextStep } from "../../load-pipeline";
@@ -59,9 +60,11 @@ export default async function CompanyPage({
       .order("created_at", { ascending: false }),
     supabase
       .from("crm_activities")
-      .select("id, kind, body, occurred_at, deal_id, contact_id, actor_id, status, due_on, assignee_id, done_at, done_by, done_comment")
+      .select(
+        "id, kind, body, occurred_at, deal_id, contact_id, actor_id, status, due_on, assignee_id, done_at, done_by, done_comment, cancelled_at, cancelled_by, cancel_reason, edited_at, edited_by"
+      )
       .eq("client_id", id)
-      .eq("status", "done")
+      .in("status", ["done", "cancelled"])
       .order("occurred_at", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(200),
@@ -158,6 +161,7 @@ export default async function CompanyPage({
       occurred_at: a.occurred_at,
       deal_id: a.deal_id,
       deal_title: a.deal_id ? (dealTitle.get(a.deal_id) ?? null) : null,
+      contact_id: a.contact_id,
       contact_name: a.contact_id ? (contactName.get(a.contact_id) ?? null) : null,
       actor: a.actor_id ? person(a.actor_id) : null,
       is_mine: a.actor_id === current.user.id,
@@ -167,9 +171,14 @@ export default async function CompanyPage({
       done_at: a.done_at,
       done_by: a.done_by ? person(a.done_by) : null,
       done_comment: a.done_comment,
+      cancelled_at: a.cancelled_at,
+      cancelled_by: a.cancelled_by ? person(a.cancelled_by) : null,
+      cancel_reason: a.cancel_reason,
+      edited_at: a.edited_at,
+      edited_by: a.edited_by ? person(a.edited_by) : null,
     }))
-    // A completed step sits on the day it was done, not the day it was planned.
-    .sort((a, b) => Date.parse(b.done_at ?? b.occurred_at) - Date.parse(a.done_at ?? a.occurred_at));
+    // A completed / cancelled step sits on the day it was closed, not the day it was planned.
+    .sort((a, b) => Date.parse(timelineAt(b)) - Date.parse(timelineAt(a)));
 
   const steps: NextStepView[] = plannedSteps
     .map((s) => ({
@@ -224,6 +233,8 @@ export default async function CompanyPage({
             <NextStepsCard
               steps={steps}
               people={owners}
+              contacts={contacts}
+              deals={deals}
               canManage={canManage}
               currentUserId={current.user.id}
             />
@@ -237,7 +248,7 @@ export default async function CompanyPage({
                 activeDealId={activeDeal?.id ?? null}
               />
             )}
-            <ActivityTimeline activities={activities} canManage={canManage} />
+            <ActivityTimeline activities={activities} contacts={contacts} deals={deals} canManage={canManage} />
           </div>
         </div>
 
@@ -245,6 +256,8 @@ export default async function CompanyPage({
           deal={activeDeal}
           company={company}
           activities={activities}
+          contacts={contacts}
+          deals={deals}
           owners={owners}
           canManage={canManage}
           projectDialogData={projectDialogData}

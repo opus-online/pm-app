@@ -87,8 +87,9 @@ export type DealView = {
 
 type PersonRef = { id: string; name: string; avatar_url: string | null };
 
-/** A timeline entry (status done). Entries that started as a planned step carry who completed
- * it and when (`done_at`, noon of the done day); everything else has those null. */
+/** A timeline entry (status done or cancelled). Entries that started as a planned step carry who
+ * completed it and when (`done_at`, noon of the done day) or who cancelled it; everything else has
+ * those null. */
 export type ActivityView = {
   id: string;
   kind: ActivityKind;
@@ -96,6 +97,7 @@ export type ActivityView = {
   occurred_at: string;
   deal_id: string | null;
   deal_title: string | null;
+  contact_id: string | null;
   contact_name: string | null;
   actor: PersonRef | null;
   is_mine: boolean;
@@ -105,6 +107,11 @@ export type ActivityView = {
   done_at: string | null;
   done_by: PersonRef | null;
   done_comment: string | null;
+  cancelled_at: string | null;
+  cancelled_by: PersonRef | null;
+  cancel_reason: string | null;
+  edited_at: string | null;
+  edited_by: PersonRef | null;
 };
 
 /** An open planned step on the company page, with its contact / deal names resolved. */

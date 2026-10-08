@@ -3,21 +3,26 @@
 import { useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
-import { CalendarClockIcon, CheckIcon, PlusIcon, UserRoundIcon, UserRoundPenIcon } from "lucide-react";
+import { CalendarClockIcon, CheckIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, UserRoundIcon, UserRoundPenIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { reassignStepAction, rescheduleStepAction } from "@/app/actions/sales";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SelectContent, SelectItem } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { KIND_META } from "../../activity-kind";
 import { DueChip } from "../../due-chip";
 import { TruncateTooltip } from "../../truncate-tooltip";
-import type { NextStepView } from "../../types";
+import type { ContactView, DealView, NextStepView } from "../../types";
+import { CancelStepDialog } from "./cancel-step-dialog";
 import { DateCommitInput } from "./date-commit-input";
 import { MarkDoneDialog, PersonOption } from "./mark-done-dialog";
 import { usePlanStep, type PlanPrefill } from "./plan-step-context";
+import { StepEditDialog } from "./step-edit-dialog";
 import { useUnstickRefresh } from "./use-unstick-refresh";
 
 type Person = { id: string; name: string; avatar_url: string | null };
@@ -25,10 +30,13 @@ type Person = { id: string; name: string; avatar_url: string | null };
 const ACTION =
   "h-6 gap-1 px-1.5 text-xs font-normal text-muted-foreground hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground";
 
-/** The company's open planned steps, earliest first, with Mark done / Change date / Reassign. */
+/** The company's open planned steps, earliest first, with Mark done / Change date / Reassign /
+ * Edit / Cancel. */
 export function NextStepsCard({
   steps,
   people,
+  contacts,
+  deals,
   canManage,
   currentUserId,
   onPlanNext,
@@ -36,6 +44,9 @@ export function NextStepsCard({
   steps: NextStepView[];
   /** Assignable Sales people (pickers list only these). */
   people: Person[];
+  /** The company's contacts and deals, offered when editing a step. */
+  contacts: ContactView[];
+  deals: DealView[];
   canManage: boolean;
   currentUserId: string;
   /** Defaults to the page's plan-step context (opens the composer in plan mode). */
@@ -47,6 +58,10 @@ export function NextStepsCard({
   const planNext = onPlanNext ?? contextPlanNext;
   const [doneStep, setDoneStep] = useState<NextStepView | null>(null);
   const [doneOpen, setDoneOpen] = useState(false);
+  const [editStep, setEditStep] = useState<NextStepView | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [cancelStep, setCancelStep] = useState<NextStepView | null>(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
 
   return (
     <Card size="sm">
@@ -92,6 +107,14 @@ export function NextStepsCard({
                   setDoneStep(s);
                   setDoneOpen(true);
                 }}
+                onEdit={() => {
+                  setEditStep(s);
+                  setEditOpen(true);
+                }}
+                onCancel={() => {
+                  setCancelStep(s);
+                  setCancelOpen(true);
+                }}
                 onOpenDeal={
                   s.deal_id ? () => router.replace(`${pathname}?deal=${s.deal_id}`, { scroll: false }) : undefined
                 }
@@ -102,14 +125,25 @@ export function NextStepsCard({
       </CardContent>
 
       {canManage && (
-        <MarkDoneDialog
-          step={doneStep}
-          people={people}
-          currentUserId={currentUserId}
-          open={doneOpen}
-          onOpenChange={setDoneOpen}
-          onDone={planNext}
-        />
+        <>
+          <MarkDoneDialog
+            step={doneStep}
+            people={people}
+            currentUserId={currentUserId}
+            open={doneOpen}
+            onOpenChange={setDoneOpen}
+            onDone={planNext}
+          />
+          <StepEditDialog
+            step={editStep}
+            people={people}
+            contacts={contacts}
+            deals={deals}
+            open={editOpen}
+            onOpenChange={setEditOpen}
+          />
+          <CancelStepDialog step={cancelStep} open={cancelOpen} onOpenChange={setCancelOpen} />
+        </>
       )}
     </Card>
   );
@@ -120,12 +154,16 @@ function StepRow({
   people,
   canManage,
   onMarkDone,
+  onEdit,
+  onCancel,
   onOpenDeal,
 }: {
   step: NextStepView;
   people: Person[];
   canManage: boolean;
   onMarkDone: () => void;
+  onEdit: () => void;
+  onCancel: () => void;
   onOpenDeal?: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -254,6 +292,25 @@ function StepRow({
                 ))}
               </SelectContent>
             </SelectPrimitive.Root>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                aria-label="More step actions"
+                render={<Button size="icon-xs" variant="ghost" className={ACTION} />}
+              >
+                <MoreHorizontalIcon />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-36">
+                <DropdownMenuItem onClick={onEdit}>
+                  <PencilIcon />
+                  Edit step
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={onCancel}>
+                  <XIcon />
+                  Cancel step
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )}
       </div>

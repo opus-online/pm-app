@@ -40,7 +40,7 @@ import { LostReasonDialog } from "../../lost-reason-dialog";
 import { formatEur } from "../../money";
 import { TruncateTooltip } from "../../truncate-tooltip";
 import { OFFER_STATUS_DOT, OFFER_STATUS_LABEL, SOURCE_LABEL, STAGE_DOT, STAGE_LABEL } from "../../stage";
-import type { ActivityView, CompanyView, DealView, OfferView, SalesOwnerOption } from "../../types";
+import type { ActivityView, CompanyView, ContactView, DealView, OfferView, SalesOwnerOption } from "../../types";
 import { ActivityTimeline } from "./activity-timeline";
 import { OfferFormDialog } from "./offer-form-dialog";
 import { usePlanStep } from "./plan-step-context";
@@ -64,6 +64,8 @@ export function DealSheet({
   deal,
   company,
   activities,
+  contacts,
+  deals,
   owners,
   canManage,
   projectDialogData,
@@ -71,6 +73,9 @@ export function DealSheet({
   deal: DealView | null;
   company: CompanyView;
   activities: ActivityView[];
+  /** The company's contacts and deals, for editing a timeline entry. */
+  contacts: ContactView[];
+  deals: DealView[];
   owners: SalesOwnerOption[];
   canManage: boolean;
   projectDialogData: ProjectDialogData | null;
@@ -105,6 +110,8 @@ export function DealSheet({
             deal={shown}
             company={company}
             activities={activities}
+            contacts={contacts}
+            deals={deals}
             owners={owners}
             canManage={canManage}
             projectDialogData={projectDialogData}
@@ -120,6 +127,8 @@ function DealSheetBody({
   deal: serverDeal,
   company,
   activities,
+  contacts,
+  deals,
   owners,
   canManage,
   projectDialogData,
@@ -128,6 +137,8 @@ function DealSheetBody({
   deal: DealView;
   company: CompanyView;
   activities: ActivityView[];
+  contacts: ContactView[];
+  deals: DealView[];
   owners: SalesOwnerOption[];
   canManage: boolean;
   projectDialogData: ProjectDialogData | null;
@@ -394,6 +405,8 @@ function DealSheetBody({
 
         <ActivityTimeline
           activities={dealActivities}
+          contacts={contacts}
+          deals={deals}
           canManage={canManage}
           showDeal={false}
           emptyText="No activity on this deal yet."
