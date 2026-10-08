@@ -1,10 +1,9 @@
 import { notFound } from "next/navigation";
-import type { NextStep } from "@/lib/sales/next-step";
 import { pipelineTotals } from "@/lib/sales/pipeline";
 import { getSalesAccess } from "./access";
 import { CompaniesTable } from "./companies-table";
 import { loadCompanies } from "./load-companies";
-import { loadCompanyOptions, loadPipeline, loadSalesOwners } from "./load-pipeline";
+import { loadCompanyOptions, loadPipeline, loadPlannedStepDates, loadSalesOwners } from "./load-pipeline";
 import { NewLeadDialog } from "./new-lead-dialog";
 import { formatEur } from "./money";
 import { PipelineBoard } from "./pipeline-board";
@@ -25,16 +24,16 @@ export default async function SalesPage({
   const { view: viewParam } = await searchParams;
   const view: PipelineView = viewParam === "board" ? "board" : "list";
   const manage = canManage;
-  // Companies drive the list and the steps KPI; deals drive the board and the money KPIs. The
-  // dialog's pickers are only loaded for users who can create leads.
-  const [companies, rows, owners, companyOptions] = await Promise.all([
+  // Companies drive the list, deals the board and the money KPIs, every planned step the Steps
+  // due KPI. The dialog's pickers are only loaded for users who can create leads.
+  const [companies, rows, steps, owners, companyOptions] = await Promise.all([
     loadCompanies(),
     loadPipeline(),
+    loadPlannedStepDates(),
     manage ? loadSalesOwners() : Promise.resolve([]),
     manage ? loadCompanyOptions() : Promise.resolve([]),
   ]);
   const totals = pipelineTotals(rows);
-  const steps = companies.flatMap((c): NextStep[] => (c.next_step ? [c.next_step] : []));
 
   return (
     <div className="space-y-4">

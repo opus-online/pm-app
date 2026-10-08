@@ -107,6 +107,8 @@ export function PipelineBoard({ rows, canManage }: { rows: PipelineRow[]; canMan
         r.latest_offer_amount,
         r.owner.id,
         `${r.next_step?.activity_id ?? ""}${r.next_step?.due_on ?? ""}`,
+        r.next_step?.assignee?.id ?? "",
+        r.next_step?.body ?? "",
         r.won_at,
       ].join(":")
     )

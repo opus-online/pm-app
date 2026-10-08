@@ -15,7 +15,7 @@ import { avatarTint } from "@/lib/avatar-tint";
 import { normalizeRegCode } from "@/lib/sales/reg-code";
 import { DEAL_STAGES } from "@/lib/sales/types";
 import { initials } from "../projects/types";
-import { formatEur } from "./money";
+import { formatAmount } from "./money";
 import { NextStepCell } from "./next-step-cell";
 import {
   ALL, EMPTY_FILTERS, PipelineFilters, type PipelineFilterState,
@@ -138,7 +138,7 @@ export function CompaniesTable({ rows }: { rows: CompanyRow[] }) {
                   <TableCell
                     className={`text-right font-medium tabular-nums ${row.open_value ? "" : "text-muted-foreground"}`}
                   >
-                    {formatEur(row.open_value || null)}
+                    {formatAmount(row.open_value || null)}
                   </TableCell>
                   <TableCell>
                     <NextStepCell step={row.next_step} />

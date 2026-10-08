@@ -111,6 +111,15 @@ export async function loadPipeline(): Promise<PipelineRow[]> {
   );
 }
 
+/** Due dates of every open planned step the viewer can see (RLS: view_sales) -- the Steps due
+ * KPI counts all of them, not just each company's earliest. */
+export async function loadPlannedStepDates(): Promise<{ due_on: string }[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("crm_activities").select("due_on").eq("status", "planned");
+  if (error) throw new Error("Failed to load next steps");
+  return (data ?? []).flatMap((a) => (a.due_on ? [{ due_on: a.due_on }] : []));
+}
+
 /** Who a deal can be assigned to: active users holding sales or admin, by name. */
 export async function loadSalesOwners(): Promise<SalesOwnerOption[]> {
   return (await loadSalesPeople())
