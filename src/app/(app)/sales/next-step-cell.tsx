@@ -1,7 +1,6 @@
 "use client";
 
 import { PersonAvatar } from "@/components/person-avatar";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { NextStep } from "@/lib/sales/next-step";
 import { cn } from "@/lib/utils";
 import { KIND_META } from "./activity-kind";
@@ -25,18 +24,14 @@ export function NextStepCell({ step }: { step: NextStep | null }) {
       </span>
       <TruncateTooltip text={step.body} className="flex-1 text-sm" />
       {step.assignee && (
-        <Tooltip>
-          <TooltipTrigger
-            render={<span aria-label={`Assignee: ${step.assignee.name}`} className="inline-flex shrink-0" />}
-          >
-            <PersonAvatar
-              name={step.assignee.name}
-              avatarUrl={step.assignee.avatar_url}
-              className="size-6 text-[10px]"
-            />
-          </TooltipTrigger>
-          <TooltipContent>{step.assignee.name}</TooltipContent>
-        </Tooltip>
+        <span className="flex max-w-36 shrink-0 items-center gap-1.5" aria-label={`Assignee: ${step.assignee.name}`}>
+          <PersonAvatar
+            name={step.assignee.name}
+            avatarUrl={step.assignee.avatar_url}
+            className="size-6 text-[10px]"
+          />
+          <TruncateTooltip text={step.assignee.name} className="text-sm text-muted-foreground" />
+        </span>
       )}
     </div>
   );
