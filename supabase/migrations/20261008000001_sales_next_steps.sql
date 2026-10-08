@@ -25,8 +25,10 @@ grant execute on function public.is_sales_assignable(uuid) to authenticated;
 drop policy "insert crm_activities" on public.crm_activities;
 create policy "insert crm_activities" on public.crm_activities for insert
   with check (public.has_permission(auth.uid(),'manage_sales') and kind <> 'system' and actor_id = auth.uid()
-              and (status = 'done' and done_at is null and done_by is null
-                   or status = 'planned' and public.is_sales_assignable(assignee_id) and done_at is null));
+              and (status = 'done' and done_at is null and done_by is null and done_comment is null
+                     and assignee_id is null and due_on is null
+                   or status = 'planned' and public.is_sales_assignable(assignee_id) and done_at is null
+                     and done_by is null and done_comment is null));
 
 create or replace function public.app_date_label(d date) returns text
 language sql immutable as $$ select to_char(d, 'DD.MM.YYYY') $$;
@@ -38,7 +40,9 @@ declare v public.crm_activities%rowtype;
 begin
   if not public.has_permission(auth.uid(),'manage_sales') then raise exception 'Not authorized' using errcode = '42501'; end if;
   select * into v from public.crm_activities where id = p_id for update;
-  if not found or v.status <> 'planned' then raise exception 'Step not found or already done'; end if;
+  if not found or v.status <> 'planned' then raise exception 'Step not found or already done' using errcode = 'P0002'; end if;
+  if p_done_on is null then raise exception 'done_on is required' using errcode = '22004'; end if;
+  if p_done_on > (now() at time zone 'Europe/Tallinn')::date then raise exception 'done_on cannot be in the future' using errcode = '22004'; end if;
   if not public.is_sales_assignable(p_done_by) then raise exception 'Done by must be a Sales user' using errcode = '42501'; end if;
   update public.crm_activities
      set status = 'done', done_at = (p_done_on::timestamp + time '12:00') at time zone 'Europe/Tallinn',
@@ -52,7 +56,8 @@ declare v public.crm_activities%rowtype;
 begin
   if not public.has_permission(auth.uid(),'manage_sales') then raise exception 'Not authorized' using errcode = '42501'; end if;
   select * into v from public.crm_activities where id = p_id for update;
-  if not found or v.status <> 'planned' then raise exception 'Step not found or already done'; end if;
+  if not found or v.status <> 'planned' then raise exception 'Step not found or already done' using errcode = 'P0002'; end if;
+  if p_due_on is null then raise exception 'due_on is required' using errcode = '22004'; end if;
   if v.due_on = p_due_on then return; end if;
   update public.crm_activities set due_on = p_due_on where id = p_id;
   insert into public.crm_activities (client_id, deal_id, kind, body, actor_id, metadata)
@@ -67,7 +72,7 @@ declare v public.crm_activities%rowtype; v_name text;
 begin
   if not public.has_permission(auth.uid(),'manage_sales') then raise exception 'Not authorized' using errcode = '42501'; end if;
   select * into v from public.crm_activities where id = p_id for update;
-  if not found or v.status <> 'planned' then raise exception 'Step not found or already done'; end if;
+  if not found or v.status <> 'planned' then raise exception 'Step not found or already done' using errcode = 'P0002'; end if;
   if not public.is_sales_assignable(p_assignee) then raise exception 'Assignee must be a Sales user' using errcode = '42501'; end if;
   if v.assignee_id = p_assignee then return; end if;
   select coalesce(full_name, email) into v_name from public.user_profiles where id = p_assignee;
@@ -107,7 +112,7 @@ begin
   get diagnostics n = row_count;
   return n;
 end; $$;
-revoke all on function public.migrate_deal_follow_ups() from public, anon;
+revoke all on function public.migrate_deal_follow_ups() from public, anon, authenticated;
 select public.migrate_deal_follow_ups();
 
 -- log_deal_activity without the follow-up branch (20261007000001)

@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(21);
+select plan(25);
 
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, encrypted_password, created_at, updated_at) values
   ('ad000000-0000-4000-8000-000000000001','00000000-0000-0000-0000-000000000000','authenticated','authenticated','s1@ns.test','{"full_name":"Sara"}','{}','',now(),now()),
@@ -21,15 +21,17 @@ select is((select is_sales_assignable('ad000000-0000-4000-8000-000000000003')), 
 
 set local role authenticated;
 set local "request.jwt.claims" to '{"sub":"ad000000-0000-4000-8000-000000000001","role":"authenticated"}';
--- 4-6 planning
+-- 4-7 planning + insert policy hardening
 select lives_ok($$ insert into public.crm_activities (id, client_id, deal_id, kind, body, status, due_on, assignee_id)
   values ('ad300000-0000-4000-8000-000000000001','ad100000-0000-4000-8000-000000000001','ad200000-0000-4000-8000-000000000001','call','Call Kristjan','planned','2026-10-14','ad000000-0000-4000-8000-000000000002') $$, 'sales user plans a step for a colleague');
 select throws_ok($$ insert into public.crm_activities (client_id, kind, body, status, due_on, assignee_id)
   values ('ad100000-0000-4000-8000-000000000001','call','x','planned','2026-10-14','ad000000-0000-4000-8000-000000000003') $$, '42501', null, 'cannot assign to a non-sales user');
+select throws_ok($$ insert into public.crm_activities (client_id, kind, body, status, assignee_id)
+  values ('ad100000-0000-4000-8000-000000000001','call','x','done','ad000000-0000-4000-8000-000000000002') $$, '42501', null, 'done row cannot set assignee_id');
 select lives_ok($$ insert into public.crm_activities (id, client_id, kind, body, status, due_on, assignee_id)
   values ('ad300000-0000-4000-8000-000000000002','ad100000-0000-4000-8000-000000000002','email','Send intro','planned','2026-10-20','ad000000-0000-4000-8000-000000000001') $$, 'step on a company without deals');
 
--- 7-9 views
+-- 8-10 views
 insert into public.crm_activities (id, client_id, kind, body, status, due_on, assignee_id)
   values ('ad300000-0000-4000-8000-000000000003','ad100000-0000-4000-8000-000000000001','meeting','Later step','planned','2026-10-30','ad000000-0000-4000-8000-000000000001');
 select is((select activity_id from public.company_next_steps where client_id='ad100000-0000-4000-8000-000000000001'),
@@ -38,35 +40,47 @@ select is((select activity_id from public.deal_next_steps where deal_id='ad20000
   'ad300000-0000-4000-8000-000000000001'::uuid, 'deal next step');
 select is((select count(*)::int from public.company_next_steps where client_id='ad100000-0000-4000-8000-000000000002'), 1, 'company without deals has a next step');
 
--- 10-12 reschedule
+-- 11-13 reschedule
 select lives_ok($$ select public.reschedule_activity('ad300000-0000-4000-8000-000000000001','2026-10-21') $$, 'reschedule');
 select ok(exists(select 1 from public.crm_activities where kind='system' and body='Next step moved: 14.10.2026 → 21.10.2026'
   and actor_id='ad000000-0000-4000-8000-000000000001'), 'reschedule logs a system entry with the actor');
 select public.reschedule_activity('ad300000-0000-4000-8000-000000000001','2026-10-21');
 select is((select count(*)::int from public.crm_activities where body like 'Next step moved%'), 1, 'same-date reschedule writes nothing');
 
--- 13-14 reassign
+-- 14-15 reassign
 select lives_ok($$ select public.reassign_activity('ad300000-0000-4000-8000-000000000001','ad000000-0000-4000-8000-000000000001') $$, 'reassign');
 select ok(exists(select 1 from public.crm_activities where kind='system' and body='Next step reassigned to Sara'), 'reassign logs');
 
--- 15-17 complete (anna completes a step sara created)
+-- 16-20 complete (anna completes a step sara created)
 set local "request.jwt.claims" to '{"sub":"ad000000-0000-4000-8000-000000000002","role":"authenticated"}';
-select lives_ok($$ select public.complete_activity('ad300000-0000-4000-8000-000000000001','2026-10-21','ad000000-0000-4000-8000-000000000002','Talked, wants v3') $$, 'any sales user completes any step');
+select throws_ok($$ select public.complete_activity('ad300000-0000-4000-8000-000000000001', null, 'ad000000-0000-4000-8000-000000000002', 'x') $$, '22004', null, 'complete_activity rejects a null done_on');
+select throws_ok($$ select public.complete_activity('ad300000-0000-4000-8000-000000000001', (now() at time zone 'Europe/Tallinn')::date + 1, 'ad000000-0000-4000-8000-000000000002', 'x') $$, '22004', null, 'complete_activity rejects a future done_on');
+select lives_ok($$ select public.complete_activity('ad300000-0000-4000-8000-000000000001', (now() at time zone 'Europe/Tallinn')::date, 'ad000000-0000-4000-8000-000000000002','Talked, wants v3') $$, 'any sales user completes any step');
 select is((select status::text || '|' || done_by::text || '|' || done_comment from public.crm_activities where id='ad300000-0000-4000-8000-000000000001'),
   'done|ad000000-0000-4000-8000-000000000002|Talked, wants v3', 'done fields recorded');
-select throws_ok($$ select public.complete_activity('ad300000-0000-4000-8000-000000000001','2026-10-21','ad000000-0000-4000-8000-000000000002',null) $$, null, null, 'cannot complete twice');
+select throws_ok($$ select public.complete_activity('ad300000-0000-4000-8000-000000000001', (now() at time zone 'Europe/Tallinn')::date, 'ad000000-0000-4000-8000-000000000002',null) $$, 'P0002', null, 'cannot complete twice');
 
--- 18-19 non-sales
+-- 21-22 non-sales
 set local "request.jwt.claims" to '{"sub":"ad000000-0000-4000-8000-000000000003","role":"authenticated"}';
 select throws_ok($$ select public.complete_activity('ad300000-0000-4000-8000-000000000003','2026-10-21','ad000000-0000-4000-8000-000000000003',null) $$, '42501', null, 'non-sales cannot complete');
 select is((select count(*)::int from public.company_next_steps), 0, 'non-sales sees no next steps');
 reset role;
 
--- 20 follow-up column gone
+-- 23 follow-up column gone
 select hasnt_column('public', 'deals', 'next_follow_up_on', 'deal follow-up date retired');
 
--- backfill function converts a legacy follow-up (exercised via migrate_deal_follow_ups on a temp column)
-select ok(exists(select 1 from pg_proc where proname = 'migrate_deal_follow_ups'), 'backfill function exists');
+-- 24-25 backfill exercised: migrate_deal_follow_ups() converts an open deal's legacy follow-up
+-- into a planned step (and skips a won deal's), on a transaction-local temp column standing in
+-- for the now-dropped deals.next_follow_up_on.
+alter table public.deals add column next_follow_up_on date;
+insert into public.deals (id, client_id, title, stage, source, owner_id, next_follow_up_on) values
+  ('ad200000-0000-4000-8000-000000000002','ad100000-0000-4000-8000-000000000001','Deal Open','new','inbound','ad000000-0000-4000-8000-000000000001','2026-11-01'),
+  ('ad200000-0000-4000-8000-000000000003','ad100000-0000-4000-8000-000000000001','Deal Won','won','inbound','ad000000-0000-4000-8000-000000000001','2026-11-05');
+select is(public.migrate_deal_follow_ups(), 1, 'backfill converts exactly the one open deal''s follow-up (won deal excluded)');
+select is((select body || '|' || due_on::text || '|' || assignee_id::text || '|' || actor_id::text || '|' || status::text
+           from public.crm_activities where deal_id='ad200000-0000-4000-8000-000000000002' and kind='call'),
+          'Follow up: Deal Open|2026-11-01|ad000000-0000-4000-8000-000000000001|ad000000-0000-4000-8000-000000000001|planned',
+          'backfilled step carries the deal''s title/date/owner as a planned call');
 
 select * from finish();
 rollback;
