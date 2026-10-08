@@ -1,35 +1,35 @@
 "use client";
 
-import { Archive, XIcon } from "lucide-react";
+import { XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { PersonAvatar } from "@/components/person-avatar";
-import { DEAL_SOURCES, DEAL_STAGES, OPEN_STAGES, type DealSource, type DealStage } from "@/lib/sales/types";
-import { SOURCE_LABEL, STAGE_DOT, STAGE_LABEL } from "./stage";
+import { OPEN_STAGES, type DealStage } from "@/lib/sales/types";
+import { STAGE_DOT, STAGE_LABEL } from "./stage";
 
 export const ALL = "__all__";
 
+export type StepFilter = typeof ALL | "with" | "without";
+
 export type PipelineFilterState = {
   q: string;
+  /** Companies with at least one open deal in this stage. */
   stage: DealStage | typeof ALL;
-  source: DealSource | typeof ALL;
-  owner: string; // owner id or ALL
-  closed: boolean;
+  step: StepFilter;
 };
 
-export const EMPTY_FILTERS: PipelineFilterState = {
-  q: "",
-  stage: ALL,
-  source: ALL,
-  owner: ALL,
-  closed: false,
+export const EMPTY_FILTERS: PipelineFilterState = { q: "", stage: ALL, step: ALL };
+
+const STEP_LABEL: Record<StepFilter, string> = {
+  [ALL]: "Any next step",
+  with: "With next step",
+  without: "Without next step",
 };
 
 export function hasActiveFilters(f: PipelineFilterState): boolean {
-  return f.q.trim() !== "" || f.stage !== ALL || f.source !== ALL || f.owner !== ALL || f.closed;
+  return f.q.trim() !== "" || f.stage !== ALL || f.step !== ALL;
 }
 
 /** Thin vertical rule between filter chips -- same separator as the projects filters. */
@@ -55,20 +55,18 @@ function StageOption({ stage }: { stage: DealStage }) {
 export function PipelineFilters({
   value,
   onChange,
-  owners,
 }: {
   value: PipelineFilterState;
   onChange: (next: PipelineFilterState) => void;
-  owners: { id: string; name: string; avatar_url: string | null }[];
 }) {
   const set = <K extends keyof PipelineFilterState>(key: K, v: PipelineFilterState[K]) =>
     onChange({ ...value, [key]: v });
-  const stageOptions = value.closed ? DEAL_STAGES : OPEN_STAGES;
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Input
-        placeholder="Search companies, contacts or reg code…"
+        placeholder="Search companies, contacts or next steps…"
+        aria-label="Search companies"
         value={value.q}
         onChange={(e) => set("q", e.target.value)}
         className="mr-3 w-84 rounded-full border-transparent bg-muted/60 shadow-none"
@@ -77,14 +75,14 @@ export function PipelineFilters({
         value={value.stage}
         onValueChange={(v) => set("stage", (v as PipelineFilterState["stage"]) ?? ALL)}
       >
-        <SelectTrigger className={chip(value.stage !== ALL)}>
+        <SelectTrigger className={chip(value.stage !== ALL)} aria-label="Deal stage">
           <SelectValue>
             {(v: string) => (v === ALL ? "All stages" : <StageOption stage={v as DealStage} />)}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={ALL}>All stages</SelectItem>
-          {stageOptions.map((s) => (
+          {OPEN_STAGES.map((s) => (
             <SelectItem key={s} value={s}>
               <StageOption stage={s} />
             </SelectItem>
@@ -92,73 +90,18 @@ export function PipelineFilters({
         </SelectContent>
       </Select>
       <FilterDivider />
-      <Select
-        value={value.source}
-        onValueChange={(v) => set("source", (v as PipelineFilterState["source"]) ?? ALL)}
-      >
-        <SelectTrigger className={chip(value.source !== ALL)}>
-          <SelectValue>
-            {(v: string) => (v === ALL ? "All sources" : SOURCE_LABEL[v as DealSource])}
-          </SelectValue>
+      <Select value={value.step} onValueChange={(v) => set("step", (v as StepFilter) ?? ALL)}>
+        <SelectTrigger className={chip(value.step !== ALL)} aria-label="Next step">
+          <SelectValue>{(v: string) => STEP_LABEL[v as StepFilter]}</SelectValue>
         </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL}>All sources</SelectItem>
-          {DEAL_SOURCES.map((s) => (
+        <SelectContent className="min-w-48">
+          {([ALL, "with", "without"] as const).map((s) => (
             <SelectItem key={s} value={s}>
-              {SOURCE_LABEL[s]}
+              {STEP_LABEL[s]}
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
-      {owners.length > 0 && (
-        <>
-          <FilterDivider />
-          <Select value={value.owner} onValueChange={(v) => set("owner", v ?? ALL)}>
-            <SelectTrigger className={chip(value.owner !== ALL)}>
-              <SelectValue>
-                {(v: string) => {
-                  if (v === ALL) return "All owners";
-                  const o = owners.find((x) => x.id === v);
-                  return (
-                    <span className="flex items-center gap-2">
-                      <PersonAvatar name={o?.name} avatarUrl={o?.avatar_url} className="size-5 text-[9px]" />
-                      {o?.name ?? "Unknown"}
-                    </span>
-                  );
-                }}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent className="min-w-52">
-              <SelectItem value={ALL}>All owners</SelectItem>
-              {owners.map((o) => (
-                <SelectItem key={o.id} value={o.id}>
-                  <span className="flex items-center gap-2">
-                    <PersonAvatar name={o.name} avatarUrl={o.avatar_url} className="size-5 text-[9px]" />
-                    {o.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </>
-      )}
-      <FilterDivider />
-      <Button
-        variant="outline"
-        aria-pressed={value.closed}
-        onClick={() =>
-          onChange({
-            ...value,
-            closed: !value.closed,
-            // Hiding closed deals drops a won/lost stage pick that could no longer match anything.
-            stage: value.closed && value.stage !== ALL && !OPEN_STAGES.includes(value.stage) ? ALL : value.stage,
-          })
-        }
-        className={`font-normal ${chip(value.closed)}`}
-      >
-        <Archive className="text-muted-foreground" />
-        Show closed
-      </Button>
       {hasActiveFilters(value) && (
         <Button
           variant="ghost"

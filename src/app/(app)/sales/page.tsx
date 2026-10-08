@@ -1,12 +1,14 @@
 import { notFound } from "next/navigation";
+import type { NextStep } from "@/lib/sales/next-step";
 import { pipelineTotals } from "@/lib/sales/pipeline";
 import { getSalesAccess } from "./access";
+import { CompaniesTable } from "./companies-table";
+import { loadCompanies } from "./load-companies";
 import { loadCompanyOptions, loadPipeline, loadSalesOwners } from "./load-pipeline";
 import { NewLeadDialog } from "./new-lead-dialog";
 import { formatEur } from "./money";
 import { PipelineBoard } from "./pipeline-board";
 import { PipelineKpis } from "./pipeline-kpis";
-import { PipelineTable } from "./pipeline-table";
 import { ViewToggle, type PipelineView } from "./view-toggle";
 
 export default async function SalesPage({
@@ -23,13 +25,16 @@ export default async function SalesPage({
   const { view: viewParam } = await searchParams;
   const view: PipelineView = viewParam === "board" ? "board" : "list";
   const manage = canManage;
-  // The dialog's pickers are only loaded for users who can create leads.
-  const [rows, owners, companies] = await Promise.all([
+  // Companies drive the list and the steps KPI; deals drive the board and the money KPIs. The
+  // dialog's pickers are only loaded for users who can create leads.
+  const [companies, rows, owners, companyOptions] = await Promise.all([
+    loadCompanies(),
     loadPipeline(),
     manage ? loadSalesOwners() : Promise.resolve([]),
     manage ? loadCompanyOptions() : Promise.resolve([]),
   ]);
   const totals = pipelineTotals(rows);
+  const steps = companies.flatMap((c): NextStep[] => (c.next_step ? [c.next_step] : []));
 
   return (
     <div className="space-y-4">
@@ -37,6 +42,8 @@ export default async function SalesPage({
         <div>
           <h1 className="text-2xl font-semibold">Sales</h1>
           <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">
+            {companies.length} compan{companies.length === 1 ? "y" : "ies"}
+            <span className="mx-1.5 text-border">·</span>
             {totals.openCount} open deal{totals.openCount === 1 ? "" : "s"}
             <span className="mx-1.5 text-border">·</span>
             {formatEur(totals.pipelineValue)} pipeline
@@ -44,16 +51,18 @@ export default async function SalesPage({
         </div>
         <div className="flex items-center gap-2">
           <ViewToggle view={view} />
-          {manage && <NewLeadDialog companies={companies} owners={owners} currentUserId={current.user.id} />}
+          {manage && (
+            <NewLeadDialog companies={companyOptions} owners={owners} currentUserId={current.user.id} />
+          )}
         </div>
       </div>
 
-      <PipelineKpis rows={rows} />
+      <PipelineKpis rows={rows} steps={steps} />
 
       {view === "board" ? (
         <PipelineBoard rows={rows} canManage={manage} />
       ) : (
-        <PipelineTable rows={rows} canManage={manage} />
+        <CompaniesTable rows={companies} />
       )}
     </div>
   );

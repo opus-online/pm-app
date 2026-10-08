@@ -12,10 +12,11 @@ import { toast } from "sonner";
 import { updateDealAction } from "@/app/actions/sales";
 import { DotBadge } from "@/components/dot-badge";
 import { PersonAvatar } from "@/components/person-avatar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { stageTotals } from "@/lib/sales/pipeline";
 import { DEAL_STAGES, OPEN_STAGES, type DealStage } from "@/lib/sales/types";
 import { cn } from "@/lib/utils";
-import { FollowUpChip } from "./follow-up-chip";
+import { DueChip } from "./due-chip";
 import { LostReasonDialog } from "./lost-reason-dialog";
 import { formatEur } from "./money";
 import { STAGE_DOT, STAGE_LABEL } from "./stage";
@@ -100,7 +101,14 @@ export function PipelineBoard({ rows, canManage }: { rows: PipelineRow[]; canMan
   // Done during render (React's "adjust state on prop change" pattern) rather than in an effect.
   const rowsKey = rows
     .map((r) =>
-      [r.id, r.stage, r.latest_offer_amount, r.owner.id, r.next_follow_up_on, r.won_at].join(":")
+      [
+        r.id,
+        r.stage,
+        r.latest_offer_amount,
+        r.owner.id,
+        `${r.next_step?.activity_id ?? ""}${r.next_step?.due_on ?? ""}`,
+        r.won_at,
+      ].join(":")
     )
     .join("|");
   const [syncedKey, setSyncedKey] = useState(rowsKey);
@@ -141,7 +149,7 @@ export function PipelineBoard({ rows, canManage }: { rows: PipelineRow[]; canMan
         byStage[d.stage].push(d);
       }
     }
-    // Rows carry no "lost on" timestamp; the loader's follow-up order is the stable recency proxy,
+    // Rows carry no "lost on" timestamp; the loader's next-step order is the stable recency proxy,
     // with deals lost in this session moved to the front by moveDeal().
     byStage.lost = byStage.lost.slice(0, LOST_LIMIT);
     return byStage;
@@ -385,8 +393,19 @@ function DealCardBody({ deal, overlay = false }: { deal: PipelineRow; overlay?: 
           {formatEur(deal.latest_offer_amount)}
         </span>
         <div className="ml-auto flex items-center gap-1.5 text-xs">
-          {/* Follow-ups only matter while the deal is open. */}
-          {(deal.stage !== "won" && deal.stage !== "lost") && <FollowUpChip date={deal.next_follow_up_on} />}
+          {/* Next steps only matter while the deal is open. */}
+          {deal.next_step && deal.stage !== "won" && deal.stage !== "lost" && (
+            <Tooltip>
+              <TooltipTrigger render={<span className="inline-flex" />}>
+                <DueChip date={deal.next_step.due_on} />
+              </TooltipTrigger>
+              <TooltipContent>
+                {deal.next_step.assignee
+                  ? `${deal.next_step.body} · ${deal.next_step.assignee.name}`
+                  : deal.next_step.body}
+              </TooltipContent>
+            </Tooltip>
+          )}
           <span title={deal.owner.name} className="inline-flex">
             <PersonAvatar
               name={deal.owner.name}

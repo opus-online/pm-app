@@ -1,55 +1,75 @@
 import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/database.types";
+import type { NextStep } from "@/lib/sales/next-step";
 import { latestOffer } from "@/lib/sales/pipeline";
-import { compareByFollowUp } from "@/lib/sales/urgency";
+import { compareDueDates } from "@/lib/sales/urgency";
 import type { OfferLite } from "@/lib/sales/types";
-import type { CompanyOption, PipelineContact, PipelineRow, SalesOwnerOption } from "./types";
+import type { CompanyOption, PipelineRow, SalesOwnerOption } from "./types";
 
-// Deduped per request: loadPipeline and loadSalesOwners both need it.
+// Deduped per request: loadPipeline, loadCompanies and loadSalesOwners all need it.
 export const loadSalesPeople = cache(async () => {
   const supabase = await createClient();
   const { data } = await supabase.rpc("sales_people");
   return data ?? [];
 });
 
-/** Every deal the viewer can see (RLS: view_sales), shaped field-by-field for the client,
- * most urgent follow-up first. */
+type SalesPerson = Awaited<ReturnType<typeof loadSalesPeople>>[number];
+type NextStepViewRow = Database["public"]["Views"]["company_next_steps"]["Row"];
+
+/** A company_next_steps / deal_next_steps row as an allowlisted NextStep (field by field);
+ * null when the row is incomplete or not a user-plannable kind. */
+export function toNextStep(
+  r: Pick<NextStepViewRow, "activity_id" | "due_on" | "kind" | "body" | "assignee_id" | "deal_id" | "contact_id">,
+  people: Map<string, SalesPerson>
+): NextStep | null {
+  if (!r.activity_id || !r.due_on || r.body === null || !r.kind || r.kind === "system") return null;
+  const person = r.assignee_id ? people.get(r.assignee_id) : undefined;
+  return {
+    activity_id: r.activity_id,
+    due_on: r.due_on,
+    kind: r.kind,
+    body: r.body,
+    assignee: r.assignee_id
+      ? { id: r.assignee_id, name: person?.name ?? "Unknown", avatar_url: person?.avatar_url ?? null }
+      : null,
+    deal_id: r.deal_id,
+    contact_id: r.contact_id,
+  };
+}
+
+/** Every deal the viewer can see (RLS: view_sales) with its own next step, shaped field-by-field
+ * for the board, earliest step first. */
 export async function loadPipeline(): Promise<PipelineRow[]> {
   const supabase = await createClient();
-  // One parallel round trip, then the contacts of just the deal companies. People come from the
-  // sales_people() definer read: user_profiles RLS only exposes the viewer's own row, so a plain
-  // select couldn't name the other deal owners.
+  // One parallel round trip. People come from the sales_people() definer read: user_profiles RLS
+  // only exposes the viewer's own row, so a plain select couldn't name the other deal owners.
   // Kind comes from prospect_client_ids() (definer, same answer as company_kind) rather than an
   // RLS-scoped projects read, which would misclassify clients whose projects the viewer can't see.
-  const [dealsRes, salesPeople, prospectsRes] = await Promise.all([
+  const [dealsRes, stepsRes, salesPeople, prospectsRes] = await Promise.all([
     supabase
       .from("deals")
       .select(
-        "id, title, stage, source, next_follow_up_on, won_at, owner_id, client_id, clients(id, name, reg_code), offers(amount, status, sent_on, created_at)"
+        "id, title, stage, source, won_at, owner_id, client_id, clients(id, name, reg_code), offers(amount, status, sent_on, created_at)"
       ),
+    supabase
+      .from("deal_next_steps")
+      .select("activity_id, deal_id, due_on, kind, body, assignee_id, contact_id"),
     loadSalesPeople(),
     supabase.rpc("prospect_client_ids"),
   ]);
   if (dealsRes.error) throw new Error("Failed to load deals");
+  if (stepsRes.error) throw new Error("Failed to load next steps");
+  if (prospectsRes.error) throw new Error("Failed to load companies");
 
-  const companyIds = [...new Set((dealsRes.data ?? []).map((d) => d.client_id))];
-  const contactsRes = companyIds.length
-    ? await supabase
-        .from("client_contacts")
-        .select("id, client_id, name, phone, email")
-        .in("client_id", companyIds)
-        .order("name")
-    : { data: [] };
-
-  const contactsByClient = new Map<string, PipelineContact[]>();
-  for (const c of contactsRes.data ?? []) {
-    const list = contactsByClient.get(c.client_id) ?? [];
-    list.push({ id: c.id, name: c.name, phone: c.phone, email: c.email });
-    contactsByClient.set(c.client_id, list);
-  }
   const people = new Map(salesPeople.map((p) => [p.id, p]));
   const prospectIds = new Set(prospectsRes.data ?? []);
+  const stepByDeal = new Map<string, NextStep>();
+  for (const s of stepsRes.data ?? []) {
+    const step = s.deal_id ? toNextStep(s, people) : null;
+    if (s.deal_id && step) stepByDeal.set(s.deal_id, step);
+  }
 
   const rows: PipelineRow[] = [];
   for (const d of dealsRes.data ?? []) {
@@ -67,7 +87,6 @@ export async function loadPipeline(): Promise<PipelineRow[]> {
       title: d.title,
       stage: d.stage,
       source: d.source,
-      next_follow_up_on: d.next_follow_up_on,
       won_at: d.won_at,
       client: {
         id: company.id,
@@ -80,12 +99,16 @@ export async function loadPipeline(): Promise<PipelineRow[]> {
         name: owner?.name ?? "Unknown",
         avatar_url: owner?.avatar_url ?? null,
       },
-      contacts: contactsByClient.get(company.id) ?? [],
       latest_offer_amount: latestOffer(offers)?.amount ?? null,
       offers,
+      next_step: stepByDeal.get(d.id) ?? null,
     });
   }
-  return rows.sort(compareByFollowUp);
+  return rows.sort(
+    (a, b) =>
+      compareDueDates(a.next_step?.due_on ?? null, b.next_step?.due_on ?? null) ||
+      a.client.name.localeCompare(b.client.name)
+  );
 }
 
 /** Who a deal can be assigned to: active users holding sales or admin, by name. */

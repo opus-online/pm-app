@@ -1,14 +1,16 @@
 import { BellRing, Briefcase, Euro, Trophy } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
+import { stepsDueCount } from "@/lib/sales/next-step";
 import { pipelineTotals } from "@/lib/sales/pipeline";
 import { formatEur } from "./money";
 import type { PipelineRow } from "./types";
 
 const NEUTRAL_ICON = "bg-muted text-muted-foreground";
 
-export function PipelineKpis({ rows }: { rows: PipelineRow[] }) {
+export function PipelineKpis({ rows, steps }: { rows: PipelineRow[]; steps: { due_on: string }[] }) {
   const t = pipelineTotals(rows);
-  const due = t.dueCount > 0;
+  const dueCount = stepsDueCount(steps);
+  const due = dueCount > 0;
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard
@@ -25,8 +27,8 @@ export function PipelineKpis({ rows }: { rows: PipelineRow[] }) {
       />
       <StatCard
         icon={BellRing}
-        label="Follow-ups due"
-        value={String(t.dueCount)}
+        label="Steps due"
+        value={String(dueCount)}
         iconClass={due ? "bg-red-500/10 text-red-600 dark:text-red-400" : NEUTRAL_ICON}
         context="today or overdue"
         contextClass={due ? "text-red-700 dark:text-red-400" : undefined}
