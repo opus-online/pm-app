@@ -10,16 +10,24 @@ import { pickProvided } from "@/lib/sales/pick-provided";
 import {
   activitySchema,
   companySchema,
+  completeStepSchema,
   contactSchema,
   dealUpdateSchema,
   newLeadSchema,
   offerSchema,
+  planStepSchema,
+  reassignStepSchema,
+  rescheduleStepSchema,
   type ActivityInput,
   type CompanyInput,
+  type CompleteStepInput,
   type ContactInput,
   type DealUpdateInput,
   type NewLeadInput,
   type OfferInput,
+  type PlanStepInput,
+  type ReassignStepInput,
+  type RescheduleStepInput,
 } from "@/lib/validation/sales";
 
 type Result = { error: string } | { success: true };
@@ -32,6 +40,39 @@ const isUuid = (v: unknown) => z.uuid().safeParse(v).success;
 function revalidateSales(clientId?: string) {
   revalidatePath("/sales");
   if (clientId) revalidatePath(`/sales/companies/${clientId}`);
+}
+
+/** Ruling: deal_id/contact_id must belong to the same client_id, or a user could log/plan an
+ * activity against another company's deal/contact by id. Shared by logActivityAction and
+ * planStepAction. */
+async function assertStepRefsBelongToClient(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  clientId: string,
+  dealId?: string | null,
+  contactId?: string | null
+): Promise<string | null> {
+  if (dealId) {
+    const { data: deal } = await supabase.from("deals").select("client_id").eq("id", dealId).single();
+    if (!deal || deal.client_id !== clientId) return "That deal/contact belongs to another company.";
+  }
+  if (contactId) {
+    const { data: contact } = await supabase.from("client_contacts").select("client_id").eq("id", contactId).single();
+    if (!contact || contact.client_id !== clientId) return "That deal/contact belongs to another company.";
+  }
+  return null;
+}
+
+/** Friendly mapping for the step RPCs (complete_activity/reschedule_activity/reassign_activity):
+ * never surface the raw Postgres message. 42501 covers two distinct raises -- the plain
+ * manage_sales gate ("Not authorized") and the assignee/done_by sales-access check ("...must be
+ * a Sales user") -- so the two are told apart by message content, not by errcode alone. */
+function mapStepRpcError(error: { code: string; message: string }, dateMessage: string): string {
+  if (error.code === "42501") {
+    return error.message.includes("Sales user") ? "That person doesn't have Sales access." : "Not authorized";
+  }
+  if (error.code === "P0002") return "This step is already done.";
+  if (error.code === "22004") return dateMessage;
+  return "Save failed. Try again.";
 }
 
 async function existingByRegCode(
@@ -59,12 +100,20 @@ export async function createLeadAction(
 
   // Ruling: if attaching to an existing company, stale new-company fields (e.g. left over from a
   // form toggle) must not block the submission with validation errors for fields that are moot.
-  const raw = input.client_id ? { ...input, company: undefined } : input;
+  // Always a fresh shallow copy (never the caller's own object) -- the step-default mutation
+  // below must not leak back to the caller's input.
+  const raw: NewLeadInput = input.client_id ? { ...input, company: undefined } : { ...input };
+
+  // Ruling: an optional first step defaults its assignee to the deal owner -- the step form lets
+  // a user add a next step without separately picking who it's assigned to.
+  if (raw.step && !raw.step.assignee_id) {
+    raw.step = { ...raw.step, assignee_id: raw.deal?.owner_id ?? null };
+  }
 
   const parsed = newLeadSchema.safeParse(raw);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid lead." };
   const supabase = await createClient();
-  const { client_id, company, deal, contact } = parsed.data;
+  const { client_id, company, deal, contact, step } = parsed.data;
 
   if (!client_id) {
     const dup = await existingByRegCode(supabase, company?.reg_code ?? null);
@@ -78,6 +127,7 @@ export async function createLeadAction(
     p_company: (company ?? {}) as never,
     p_deal: deal as never,
     p_contact: (contact?.first_name ? contact : null) as never,
+    p_step: (step?.body ? step : null) as never,
   });
   if (error) {
     return error.code === "23505"
@@ -107,9 +157,9 @@ export async function updateDealAction(dealId: string, input: DealUpdateInput): 
   const parsed = dealUpdateSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid deal." };
 
-  // Only write the keys the caller actually sent -- dealUpdateSchema's text()/isoDate() helpers
-  // turn an absent next_follow_up_on/lost_reason into an explicit null, which would otherwise
-  // wipe those columns on every partial update (e.g. a stage-only drag-and-drop payload).
+  // Only write the keys the caller actually sent -- dealUpdateSchema's text() helper turns an
+  // absent lost_reason into an explicit null, which would otherwise wipe that column on every
+  // partial update (e.g. a stage-only drag-and-drop payload).
   const payload = pickProvided(parsed.data, input as Record<string, unknown>);
 
   const supabase = await createClient();
@@ -224,31 +274,17 @@ export async function deleteOfferAction(offerId: string): Promise<Result> {
   return { success: true as const };
 }
 
-export async function logActivityAction(
-  input: ActivityInput
-): Promise<{ error: string } | { success: true; warning?: string }> {
+export async function logActivityAction(input: ActivityInput): Promise<Result> {
   const current = await requirePermission("manage_sales");
 
   const parsed = activitySchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid activity." };
-  const { client_id, deal_id, contact_id, kind, body, occurred_at, set_follow_up_on } = parsed.data;
+  const { client_id, deal_id, contact_id, kind, body, occurred_at } = parsed.data;
 
   const supabase = await createClient();
 
-  // Ruling: deal_id/contact_id must belong to the same client_id, or a user could log an activity
-  // against another company's deal/contact by id.
-  if (deal_id) {
-    const { data: deal } = await supabase.from("deals").select("client_id").eq("id", deal_id).single();
-    if (!deal || deal.client_id !== client_id) {
-      return { error: "That deal/contact belongs to another company." };
-    }
-  }
-  if (contact_id) {
-    const { data: contact } = await supabase.from("client_contacts").select("client_id").eq("id", contact_id).single();
-    if (!contact || contact.client_id !== client_id) {
-      return { error: "That deal/contact belongs to another company." };
-    }
-  }
+  const refError = await assertStepRefsBelongToClient(supabase, client_id, deal_id, contact_id);
+  if (refError) return { error: refError };
 
   // Never send actor_id: the DB default is auth.uid() and RLS pins it -- sending our own value
   // (even the correct one) is unnecessary and risks future drift from the RLS check.
@@ -271,15 +307,6 @@ export async function logActivityAction(
   });
   revalidateSales(client_id);
 
-  if (set_follow_up_on && deal_id) {
-    const { error: followUpError } = await supabase
-      .from("deals")
-      .update({ next_follow_up_on: set_follow_up_on })
-      .eq("id", deal_id);
-    // Partial success: the entry is saved, so the caller must not offer to re-log it.
-    if (followUpError) return { success: true as const, warning: "Activity logged, but the follow-up date could not be saved." };
-  }
-
   return { success: true as const };
 }
 
@@ -301,6 +328,133 @@ export async function deleteActivityAction(activityId: string): Promise<Result> 
     resourceType: "crm_activity",
     resourceId: activityId,
     metadata: { client_id: activity?.client_id ?? null, deleted: true },
+  });
+  revalidateSales(activity?.client_id);
+  return { success: true as const };
+}
+
+export async function planStepAction(input: PlanStepInput): Promise<Result & { activityId?: string }> {
+  const current = await requirePermission("manage_sales");
+
+  const parsed = planStepSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid step." };
+  const { client_id, deal_id, contact_id, kind, body, due_on, assignee_id } = parsed.data;
+
+  const supabase = await createClient();
+
+  const refError = await assertStepRefsBelongToClient(supabase, client_id, deal_id, contact_id);
+  if (refError) return { error: refError };
+
+  // Never send actor_id: the DB default is auth.uid() and RLS pins it.
+  const { data, error } = await supabase
+    .from("crm_activities")
+    .insert({
+      client_id,
+      deal_id: deal_id ?? null,
+      contact_id: contact_id ?? null,
+      kind,
+      body,
+      status: "planned",
+      due_on,
+      assignee_id,
+    })
+    .select("id")
+    .single();
+  if (error || !data) {
+    // RLS 42501: the insert policy requires is_sales_assignable(assignee_id) for planned rows.
+    if (error?.code === "42501") return { error: "That person doesn't have Sales access." };
+    return { error: "Save failed. Try again." };
+  }
+
+  await writeAudit({
+    action: "company.saved",
+    actorId: current.user.id,
+    actorEmail: current.profile.email,
+    resourceType: "crm_activity",
+    resourceId: data.id,
+    metadata: { client_id, deal_id, kind, status: "planned" },
+  });
+  revalidateSales(client_id);
+  return { success: true as const, activityId: data.id };
+}
+
+export async function completeStepAction(input: CompleteStepInput): Promise<Result> {
+  const current = await requirePermission("manage_sales");
+
+  const parsed = completeStepSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid step." };
+  const { activity_id, done_on, done_by, comment } = parsed.data;
+
+  const supabase = await createClient();
+  const { data: activity } = await supabase.from("crm_activities").select("client_id").eq("id", activity_id).single();
+
+  const { error } = await supabase.rpc("complete_activity", {
+    p_id: activity_id,
+    p_done_on: done_on,
+    p_done_by: done_by,
+    // p_comment is non-nullable in the generated Args type; the SQL side already treats an empty
+    // string the same as null (coalesce + nullif), so an absent comment maps to "".
+    p_comment: comment ?? "",
+  });
+  if (error) return { error: mapStepRpcError(error, "Pick a valid date (not in the future).") };
+
+  await writeAudit({
+    action: "company.saved",
+    actorId: current.user.id,
+    actorEmail: current.profile.email,
+    resourceType: "crm_activity",
+    resourceId: activity_id,
+    metadata: { client_id: activity?.client_id ?? null, status: "done" },
+  });
+  revalidateSales(activity?.client_id);
+  return { success: true as const };
+}
+
+export async function rescheduleStepAction(input: RescheduleStepInput): Promise<Result> {
+  const current = await requirePermission("manage_sales");
+
+  const parsed = rescheduleStepSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid step." };
+  const { activity_id, due_on } = parsed.data;
+
+  const supabase = await createClient();
+  const { data: activity } = await supabase.from("crm_activities").select("client_id").eq("id", activity_id).single();
+
+  const { error } = await supabase.rpc("reschedule_activity", { p_id: activity_id, p_due_on: due_on });
+  if (error) return { error: mapStepRpcError(error, "Pick a date.") };
+
+  await writeAudit({
+    action: "company.saved",
+    actorId: current.user.id,
+    actorEmail: current.profile.email,
+    resourceType: "crm_activity",
+    resourceId: activity_id,
+    metadata: { client_id: activity?.client_id ?? null, due_on },
+  });
+  revalidateSales(activity?.client_id);
+  return { success: true as const };
+}
+
+export async function reassignStepAction(input: ReassignStepInput): Promise<Result> {
+  const current = await requirePermission("manage_sales");
+
+  const parsed = reassignStepSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid step." };
+  const { activity_id, assignee_id } = parsed.data;
+
+  const supabase = await createClient();
+  const { data: activity } = await supabase.from("crm_activities").select("client_id").eq("id", activity_id).single();
+
+  const { error } = await supabase.rpc("reassign_activity", { p_id: activity_id, p_assignee: assignee_id });
+  if (error) return { error: mapStepRpcError(error, "Pick a date.") };
+
+  await writeAudit({
+    action: "company.saved",
+    actorId: current.user.id,
+    actorEmail: current.profile.email,
+    resourceType: "crm_activity",
+    resourceId: activity_id,
+    metadata: { client_id: activity?.client_id ?? null, assignee_id },
   });
   revalidateSales(activity?.client_id);
   return { success: true as const };
