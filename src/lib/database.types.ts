@@ -859,6 +859,86 @@ export type Database = {
         }
         Relationships: []
       }
+      mcp_key_usage: {
+        Row: {
+          calls: number
+          key_id: string
+          minute: string
+        }
+        Insert: {
+          calls?: number
+          key_id: string
+          minute: string
+        }
+        Update: {
+          calls?: number
+          key_id?: string
+          minute?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mcp_key_usage_key_id_fkey"
+            columns: ["key_id"]
+            isOneToOne: false
+            referencedRelation: "mcp_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mcp_keys: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          key_hash: string
+          key_prefix: string
+          label: string
+          last_used_at: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          key_hash: string
+          key_prefix: string
+          label: string
+          last_used_at?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          key_hash?: string
+          key_prefix?: string
+          label?: string
+          last_used_at?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mcp_keys_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mcp_keys_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notifications: {
         Row: {
           body: string | null
@@ -2322,6 +2402,14 @@ export type Database = {
           ip: string
           updated_at: string
           user_agent: string
+        }[]
+      }
+      mcp_bump_usage: { Args: { p_key_id: string }; Returns: number }
+      mcp_resolve_key: {
+        Args: { p_hash: string }
+        Returns: {
+          key_id: string
+          user_id: string
         }[]
       }
       migrate_deal_follow_ups: { Args: never; Returns: number }
