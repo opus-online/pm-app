@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AdminTabs } from "../admin-tabs";
 import { AddUserDialog } from "./add-user-dialog";
 import { UsersTable } from "./users-table";
+import { McpKeysSection } from "./mcp-keys-section";
 
 export default async function AdminUsersPage() {
   const admin = await requireAdmin();
@@ -35,6 +36,7 @@ export default async function AdminUsersPage() {
         <AddUserDialog />
       </div>
       <UsersTable users={rows} currentUserId={admin.user.id} />
+      <McpKeysSection />
     </div>
   );
 }

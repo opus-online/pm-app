@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SignOutButton } from "@/components/sign-out-button";
+import { toMcpKeyRows } from "@/lib/mcp/key-display";
 import { ManagedListsCard, type ManagedOption } from "./managed-lists-card";
+import { AiAssistantCard } from "./ai-assistant-card";
 
 export default async function SettingsPage() {
   const current = await requireActiveUser();
@@ -17,7 +19,9 @@ export default async function SettingsPage() {
   // Session count only -- the full list/revoke UI already lives at /settings/sessions
   // (SessionsList), this just surfaces "how many" plus a link, rather than re-implementing it.
   // managed_options feeds the admin-only Lists card (role titles + teams for the person form).
-  const [{ data: sessions }, { data: managedOptions }] = await Promise.all([
+  // mcp_keys: own rows only (RLS also lets admins see everyone's -- hence the explicit user_id
+  // filter; the all-keys list lives on User access). Never key_hash.
+  const [{ data: sessions }, { data: managedOptions }, { data: mcpKeys }] = await Promise.all([
     supabase.rpc("list_my_sessions"),
     isAdmin
       ? supabase
@@ -27,6 +31,10 @@ export default async function SettingsPage() {
           .order("sort")
           .order("value")
       : Promise.resolve({ data: [] as ManagedOption[] }),
+    supabase
+      .from("mcp_keys")
+      .select("id, label, key_prefix, created_at, expires_at, last_used_at, revoked_at")
+      .eq("user_id", current.user.id),
   ]);
   const sessionCount = sessions?.length ?? 0;
 
@@ -55,6 +63,8 @@ export default async function SettingsPage() {
           <ThemeToggle />
         </CardContent>
       </Card>
+
+      <AiAssistantCard keys={toMcpKeyRows(mcpKeys ?? [])} />
 
       {isAdmin && <ManagedListsCard options={managedOptions ?? []} />}
 
