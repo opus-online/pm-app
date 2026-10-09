@@ -1,6 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { z } from "zod";
 import type { Database } from "@/lib/database.types";
+import type { AuditAction } from "@/lib/audit";
+
+/** One audit row for a write tool. The server fills in the actor (the key's user) and adds
+ * `metadata.via = 'mcp'` and `metadata.key_id` -- tools can't forge either. */
+export type ToolAuditEntry = {
+  action: AuditAction;
+  resourceType: string;
+  resourceId: string;
+  metadata?: Record<string, unknown>;
+};
 
 /** Everything a tool may use. `supabase` is ALWAYS the user-scoped client (anon key + a JWT minted
  * for `userId`) -- RLS applies exactly as for the user's own session. Tools never get the
@@ -9,6 +19,8 @@ export type ToolContext = {
   supabase: SupabaseClient<Database>;
   userId: string;
   keyId: string;
+  /** Writes an audit_logs row (service role, inside writeAudit -- the one allowed audit use). */
+  audit: (entry: ToolAuditEntry) => Promise<void>;
 };
 
 /** A user-facing failure: its message is safe to show the model/user verbatim. Any other thrown

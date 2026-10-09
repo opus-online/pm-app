@@ -3,6 +3,7 @@
 // credential, user/role/access/delegation or settings tools -- enforced by FORBIDDEN_NAME_PATTERN
 // in the registry test (and asserted again at registration time in ./server.ts).
 import { READ_TOOLS } from "@/lib/mcp/tools/read";
+import { SALES_TOOLS } from "@/lib/mcp/tools/sales";
 import type { ToolDef } from "@/lib/mcp/types";
 
 // Key-related names are matched as api_key/mcp_key/access_key rather than a bare "key" so
@@ -10,4 +11,4 @@ import type { ToolDef } from "@/lib/mcp/types";
 export const FORBIDDEN_NAME_PATTERN =
   /delete|remove|credential|secret|password|role|access|delegat|user_admin|setting|permission|grant|revoke|token|invite|purge|destroy|admin|impersonat|api_key|mcp_key|access_key/i;
 
-export const TOOLS: ToolDef[] = [...READ_TOOLS];
+export const TOOLS: ToolDef[] = [...READ_TOOLS, ...SALES_TOOLS];

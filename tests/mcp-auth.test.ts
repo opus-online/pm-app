@@ -94,7 +94,7 @@ describe("isRateLimited", () => {
 describe("runTool rate limiting", async () => {
   const { runTool } = await import("@/lib/mcp/run-tool");
   const { ToolError } = await import("@/lib/mcp/types");
-  const ctx = { supabase: {} as never, ...ids };
+  const ctx = { supabase: {} as never, audit: async () => {}, ...ids };
   const makeTool = (impl: () => Promise<string>) => ({
     name: "t", title: "t", description: "test tool", readOnly: true,
     inputSchema: {} as never, run: vi.fn(impl),

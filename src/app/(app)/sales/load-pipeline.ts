@@ -1,8 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
-import type { Database } from "@/lib/database.types";
-import type { NextStep } from "@/lib/sales/next-step";
+import { toNextStep, type NextStep } from "@/lib/sales/next-step";
 import { latestOffer } from "@/lib/sales/pipeline";
 import { compareDueDates } from "@/lib/sales/urgency";
 import { appDayKey } from "@/lib/time-zone";
@@ -16,29 +15,8 @@ export const loadSalesPeople = cache(async () => {
   return data ?? [];
 });
 
-type SalesPerson = Awaited<ReturnType<typeof loadSalesPeople>>[number];
-type NextStepViewRow = Database["public"]["Views"]["company_next_steps"]["Row"];
-
-/** A company_next_steps / deal_next_steps row as an allowlisted NextStep (field by field);
- * null when the row is incomplete or not a user-plannable kind. */
-export function toNextStep(
-  r: Pick<NextStepViewRow, "activity_id" | "due_on" | "kind" | "body" | "assignee_id" | "deal_id" | "contact_id">,
-  people: Map<string, SalesPerson>
-): NextStep | null {
-  if (!r.activity_id || !r.due_on || r.body === null || !r.kind || r.kind === "system") return null;
-  const person = r.assignee_id ? people.get(r.assignee_id) : undefined;
-  return {
-    activity_id: r.activity_id,
-    due_on: r.due_on,
-    kind: r.kind,
-    body: r.body,
-    assignee: r.assignee_id
-      ? { id: r.assignee_id, name: person?.name ?? "Unknown", avatar_url: person?.avatar_url ?? null }
-      : null,
-    deal_id: r.deal_id,
-    contact_id: r.contact_id,
-  };
-}
+// Shared with load-companies.ts and the company page; lives in lib so the MCP tools use it too.
+export { toNextStep } from "@/lib/sales/next-step";
 
 /** Every deal the viewer can see (RLS: view_sales) with its own next step, shaped field-by-field
  * for the board, earliest step first. */

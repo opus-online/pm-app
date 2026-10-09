@@ -16,8 +16,7 @@ import { PersonAvatar } from "@/components/person-avatar";
 import { SortableHead } from "@/components/data-table/sortable-head";
 import { useSort, type SortAccessors } from "@/components/data-table/use-sort";
 import { avatarTint } from "@/lib/avatar-tint";
-import { matchesStepFilter } from "@/lib/sales/list-filters";
-import { normalizeRegCode } from "@/lib/sales/reg-code";
+import { matchesCompanyQuery, matchesStepFilter } from "@/lib/sales/list-filters";
 import { DEAL_STAGES } from "@/lib/sales/types";
 import { initials } from "../projects/types";
 import { formatAmount } from "./money";
@@ -40,30 +39,6 @@ const ACCESSORS: SortAccessors<CompanyRow, SortKey> = {
   next_step: (r) => r.next_step?.due_on ?? null,
   responsible: (r) => r.next_step?.assignee?.name ?? null,
 };
-
-/** Digits-only view of a phone-ish string (same matching rule as the clients search). */
-function digits(value: string): string {
-  return value.replace(/\D/g, "");
-}
-
-function matchesQuery(row: CompanyRow, query: string): boolean {
-  if (row.name.toLowerCase().includes(query)) return true;
-  const regQuery = normalizeRegCode(query);
-  const reg = normalizeRegCode(row.reg_code);
-  if (regQuery && reg && reg.includes(regQuery)) return true;
-  if (row.next_step && row.next_step.body.toLowerCase().includes(query)) return true;
-  // Phone matching compares digit-to-digit; require at least 3 query digits so a lone "1"
-  // in a mixed query doesn't light up every row.
-  const queryDigits = digits(query);
-  return row.contacts.some(
-    (c) =>
-      c.name.toLowerCase().includes(query) ||
-      (c.email !== null && c.email.toLowerCase().includes(query)) ||
-      (c.phone !== null &&
-        (c.phone.toLowerCase().includes(query) ||
-          (queryDigits.length >= 3 && digits(c.phone).includes(queryDigits))))
-  );
-}
 
 export function CompaniesTable({
   rows,
@@ -101,7 +76,7 @@ export function CompaniesTable({
       if (filters.step === "with" && !row.next_step) return false;
       if (filters.step === "without" && row.next_step) return false;
       if (!matchesStepFilter(row.next_step, stepFilter)) return false;
-      if (query && !matchesQuery(row, query)) return false;
+      if (query && !matchesCompanyQuery(row, query)) return false;
       return true;
     });
   }, [rows, filters]);

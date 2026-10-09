@@ -5,7 +5,16 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/require-permission";
 import { writeAudit } from "@/lib/audit";
-import { normalizeRegCode } from "@/lib/sales/reg-code";
+import { assertStepRefsBelongToClient, existingByRegCode } from "@/lib/sales/ownership";
+import { prepareLeadInput } from "@/lib/sales/lead-input";
+import {
+  mapConvertEntryError,
+  mapCreateLeadError,
+  mapDealUpdateError,
+  mapPlanStepInsertError,
+  mapRound3RpcError,
+  mapStepRpcError,
+} from "@/lib/sales/rpc-errors";
 import { pickProvided } from "@/lib/sales/pick-provided";
 import {
   activitySchema,
@@ -48,65 +57,6 @@ function revalidateSales(clientId?: string) {
   if (clientId) revalidatePath(`/sales/companies/${clientId}`);
 }
 
-/** Ruling: deal_id/contact_id must belong to the same client_id, or a user could log/plan an
- * activity against another company's deal/contact by id. Shared by logActivityAction and
- * planStepAction. */
-async function assertStepRefsBelongToClient(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  clientId: string,
-  dealId?: string | null,
-  contactId?: string | null
-): Promise<string | null> {
-  if (dealId) {
-    const { data: deal } = await supabase.from("deals").select("client_id").eq("id", dealId).single();
-    if (!deal || deal.client_id !== clientId) return "That deal/contact belongs to another company.";
-  }
-  if (contactId) {
-    const { data: contact } = await supabase.from("client_contacts").select("client_id").eq("id", contactId).single();
-    if (!contact || contact.client_id !== clientId) return "That deal/contact belongs to another company.";
-  }
-  return null;
-}
-
-/** Friendly mapping for the step RPCs (complete_activity/reschedule_activity/reassign_activity):
- * never surface the raw Postgres message. 42501 covers two distinct raises -- the plain
- * manage_sales gate ("Not authorized") and the assignee/done_by sales-access check ("...must be
- * a Sales user") -- so the two are told apart by message content, not by errcode alone. */
-function mapStepRpcError(error: { code: string; message: string }, dateMessage: string): string {
-  if (error.code === "42501") {
-    return error.message.includes("Sales user") ? "That person doesn't have Sales access." : "Not authorized";
-  }
-  if (error.code === "P0002") return "This step is already done or was removed.";
-  if (error.code === "22004") return dateMessage;
-  return "Save failed. Try again.";
-}
-
-/** Friendly mapping for the round-3 RPCs (update_step/cancel_step/edit_entry): same 42501
- * split as mapStepRpcError, plus 22023 (cross-company or closed-deal reference / system kind)
- * and 22004 (a required field came through blank). notFoundMessage differs between steps
- * (update_step/cancel_step) and entries (edit_entry) since P0002 means something different --
- * "already done or removed" vs. "not editable". */
-function mapRound3RpcError(error: { code: string; message: string }, notFoundMessage: string): string {
-  if (error.code === "42501") {
-    return error.message.includes("Sales user") ? "That person doesn't have Sales access." : "Not authorized";
-  }
-  if (error.code === "P0002") return notFoundMessage;
-  if (error.code === "22023") return "That contact or deal belongs to another company or is closed.";
-  if (error.code === "22004") return "Fill in the required fields.";
-  return "Save failed. Try again.";
-}
-
-async function existingByRegCode(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  regCode: string | null,
-  exceptId?: string | null
-) {
-  const norm = normalizeRegCode(regCode);
-  if (!norm) return null;
-  const { data } = await supabase.from("clients").select("id, name, reg_code").not("reg_code", "is", null);
-  return (data ?? []).find((c) => normalizeRegCode(c.reg_code) === norm && c.id !== exceptId) ?? null;
-}
-
 export async function findCompanyByRegCodeAction(regCode: string): Promise<{ id: string; name: string } | null> {
   await requirePermission("view_sales");
   const supabase = await createClient();
@@ -119,17 +69,9 @@ export async function createLeadAction(
 ): Promise<DuplicateError | { success: true; clientId: string; dealId: string }> {
   const current = await requirePermission("manage_sales");
 
-  // Ruling: if attaching to an existing company, stale new-company fields (e.g. left over from a
-  // form toggle) must not block the submission with validation errors for fields that are moot.
-  // Always a fresh shallow copy (never the caller's own object) -- the step-default mutation
-  // below must not leak back to the caller's input.
-  const raw: NewLeadInput = input.client_id ? { ...input, company: undefined } : { ...input };
-
-  // Ruling: an optional first step defaults its assignee to the deal owner -- the step form lets
-  // a user add a next step without separately picking who it's assigned to.
-  if (raw.step && !raw.step.assignee_id) {
-    raw.step = { ...raw.step, assignee_id: raw.deal?.owner_id ?? null };
-  }
+  // Stale new-company fields are dropped when attaching to an existing company, and an optional
+  // first step defaults its assignee to the deal owner (see prepareLeadInput).
+  const raw = prepareLeadInput(input);
 
   const parsed = newLeadSchema.safeParse(raw);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid lead." };
@@ -151,9 +93,7 @@ export async function createLeadAction(
     p_step: (step?.body ? step : null) as never,
   });
   if (error) {
-    return error.code === "23505"
-      ? { error: "A company with this registry code already exists." }
-      : { error: "Could not create the lead. Try again." };
+    return { error: mapCreateLeadError(error) };
   }
 
   const { client_id: clientId, deal_id: dealId } = data as { client_id: string; deal_id: string };
@@ -190,10 +130,7 @@ export async function updateDealAction(dealId: string, input: DealUpdateInput): 
     .eq("id", dealId)
     .select("client_id")
     .single();
-  if (error) {
-    if (error.code === "23514") return { error: "Give a reason for losing the deal." };
-    return { error: "Save failed. Try again." };
-  }
+  if (error) return { error: mapDealUpdateError(error) };
 
   await writeAudit({
     action: "deal.updated",
@@ -374,11 +311,7 @@ export async function planStepAction(input: PlanStepInput): Promise<Result & { a
     })
     .select("id")
     .single();
-  if (error || !data) {
-    // RLS 42501: the insert policy requires is_sales_assignable(assignee_id) for planned rows.
-    if (error?.code === "42501") return { error: "That person doesn't have Sales access." };
-    return { error: "Save failed. Try again." };
-  }
+  if (error || !data) return { error: mapPlanStepInsertError(error) };
 
   await writeAudit({
     action: "company.saved",
@@ -465,10 +398,7 @@ export async function convertEntryToStepAction(input: ConvertEntryInput): Promis
     p_due_on: due_on,
     p_assignee: assignee_id,
   });
-  if (error) {
-    if (error.code === "22023") return { error: "This entry is on a closed deal, so it can't become a next step." };
-    return { error: mapRound3RpcError(error, "This entry can't be moved to next steps.") };
-  }
+  if (error) return { error: mapConvertEntryError(error) };
 
   await writeAudit({
     action: "company.saved",

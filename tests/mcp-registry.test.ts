@@ -5,6 +5,10 @@ import { FORBIDDEN_NAME_PATTERN, TOOLS } from "@/lib/mcp/registry";
 const EXPECTED = [
   "whoami", "search", "list_projects", "get_project", "list_clients", "get_client",
   "list_people", "get_person", "get_workload", "list_time_entries", "get_budget",
+  // Sales (Task 4)
+  "sales_overview", "get_company", "my_next_steps",
+  "log_activity", "plan_step", "complete_step", "update_step", "cancel_step", "move_entry_to_steps",
+  "create_lead", "update_deal", "save_offer",
 ];
 
 // Write tools planned in the spec (Tasks 4/5) -- must stay registrable under the guard.
