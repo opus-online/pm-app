@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { authenticateRequest, extractBearerKey } from "@/lib/mcp/auth";
+import { authenticateRequest, enforceRequestCeiling, extractBearerKey } from "@/lib/mcp/auth";
 import { generateKey, hashKey } from "@/lib/mcp/keys";
-import { RATE_LIMIT_PER_MINUTE, isRateLimited } from "@/lib/mcp/rate-limit";
+import { RATE_LIMIT_PER_MINUTE, REQUEST_CEILING_PER_MINUTE, isOverRequestCeiling, isRateLimited } from "@/lib/mcp/rate-limit";
 
 const ids = { userId: "11111111-1111-4111-8111-111111111111", keyId: "22222222-2222-4222-8222-222222222222" };
 
@@ -134,5 +134,35 @@ describe("runTool rate limiting", async () => {
     spy.mockRestore();
     expect(raw.isError).toBe(true);
     expect(raw.content[0].text).not.toMatch(/relation|rls/);
+  });
+});
+
+describe("request ceiling (all methods)", () => {
+  it("allows up to 300 requests per minute and refuses request 301", () => {
+    expect(REQUEST_CEILING_PER_MINUTE).toBe(300);
+    expect(isOverRequestCeiling(300)).toBe(false);
+    expect(isOverRequestCeiling(301)).toBe(true);
+    expect(isOverRequestCeiling(Number.NaN)).toBe(true);
+  });
+
+  it("enforceRequestCeiling: null under the ceiling, bumping the key's counter", async () => {
+    const bump = vi.fn().mockResolvedValue(300);
+    expect(await enforceRequestCeiling(ids, bump)).toBeNull();
+    expect(bump).toHaveBeenCalledWith(ids.keyId);
+  });
+
+  it("enforceRequestCeiling: HTTP 429 JSON with Retry-After over the ceiling", async () => {
+    const res = (await enforceRequestCeiling(ids, async () => 301))!;
+    expect(res.status).toBe(429);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(res.headers.get("retry-after")).toBe("60");
+    expect((await res.json()).error).toBe("rate_limited");
+  });
+
+  it("enforceRequestCeiling: fails closed with 503 when the counter errors", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = (await enforceRequestCeiling(ids, async () => { throw new Error("db"); }))!;
+    spy.mockRestore();
+    expect(res.status).toBe(503);
   });
 });

@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(33);
+select plan(43);
 
 -- Phase 15: AI assistant MCP -- access keys, usage counter, service-role resolver.
 -- Spec: docs/superpowers/specs/2026-10-09-ai-assistant-mcp-design.md (Data model)
@@ -199,6 +199,39 @@ select is(
 select is(public.mcp_bump_usage('fe100000-0000-4000-8000-000000000010'), 1, 'mcp_bump_usage first call returns 1');
 select is(public.mcp_bump_usage('fe100000-0000-4000-8000-000000000010'), 2, 'mcp_bump_usage second call returns 2');
 select is(public.mcp_bump_usage('fe100000-0000-4000-8000-000000000010'), 3, 'mcp_bump_usage third call returns 3');
+
+-- ---------- throttled last_used_at stamp ----------
+-- stamped < 1 minute ago: resolver still returns the user but does NOT rewrite the stamp
+update public.mcp_keys set last_used_at = now() - interval '30 seconds' where id='fe100000-0000-4000-8000-000000000010';
+select is(
+  (select user_id from public.mcp_resolve_key('hash-valid')),
+  'fe000000-0000-4000-8000-000000000001'::uuid,
+  'mcp_resolve_key returns the user even when the stamp is throttled');
+select is(
+  (select last_used_at from public.mcp_keys where id='fe100000-0000-4000-8000-000000000010'),
+  now() - interval '30 seconds',
+  'mcp_resolve_key does not re-stamp last_used_at within a minute');
+-- stamped > 1 minute ago: re-stamped to now()
+update public.mcp_keys set last_used_at = now() - interval '2 minutes' where id='fe100000-0000-4000-8000-000000000010';
+select is(
+  (select count(*)::int from public.mcp_resolve_key('hash-valid')),
+  1,
+  'mcp_resolve_key resolves a key last used over a minute ago');
+select is(
+  (select last_used_at from public.mcp_keys where id='fe100000-0000-4000-8000-000000000010'),
+  now(),
+  'mcp_resolve_key re-stamps last_used_at once over a minute old');
+
+-- ---------- mcp_bump_requests: separate per-minute request counter ----------
+select is(public.mcp_bump_requests('fe100000-0000-4000-8000-000000000010'), 1, 'mcp_bump_requests first call returns 1');
+select is(public.mcp_bump_requests('fe100000-0000-4000-8000-000000000010'), 2, 'mcp_bump_requests counts independently of tool calls');
+select is(public.mcp_bump_usage('fe100000-0000-4000-8000-000000000010'), 4, 'request bumps do not touch the tool-call count');
+select is(has_function_privilege('authenticated', 'public.mcp_bump_requests(uuid)', 'EXECUTE'),
+  false, 'authenticated cannot execute mcp_bump_requests');
+select is(has_function_privilege('service_role', 'public.mcp_bump_requests(uuid)', 'EXECUTE'),
+  true, 'service_role can execute mcp_bump_requests');
+select is(has_function_privilege('authenticated', 'public.mcp_bump_counter(uuid, text)', 'EXECUTE'),
+  false, 'authenticated cannot execute mcp_bump_counter');
 
 select * from finish();
 rollback;

@@ -5,7 +5,7 @@ import type { Database } from "@/lib/database.types";
 
 /** The MCP endpoint authenticates with its own Bearer key, never a session cookie. */
 export function isMcpPath(pathname: string): boolean {
-  return pathname === "/api/mcp" || pathname.startsWith("/api/mcp/");
+  return pathname === "/api/mcp";
 }
 
 export async function updateSession(request: NextRequest) {

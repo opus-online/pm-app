@@ -5,7 +5,9 @@
 import { READ_TOOLS } from "@/lib/mcp/tools/read";
 import type { ToolDef } from "@/lib/mcp/types";
 
+// Key-related names are matched as api_key/mcp_key/access_key rather than a bare "key" so
+// ordinary words stay usable; "access" already covers access_key but is listed for clarity.
 export const FORBIDDEN_NAME_PATTERN =
-  /delete|remove|credential|secret|password|role|access|delegat|user_admin|setting/i;
+  /delete|remove|credential|secret|password|role|access|delegat|user_admin|setting|permission|grant|revoke|token|invite|purge|destroy|admin|impersonat|api_key|mcp_key|access_key/i;
 
 export const TOOLS: ToolDef[] = [...READ_TOOLS];

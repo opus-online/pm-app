@@ -20,11 +20,14 @@ create index mcp_keys_user_idx on public.mcp_keys (user_id);
 -- written only by the SECURITY DEFINER mcp_bump_usage() below; no client-facing policy grants
 -- any privilege here at all (RLS is enabled with zero policies -- a hard deny for every role
 -- that isn't the table owner/a SECURITY DEFINER function owned by it).
+-- kind: 'tool' = tools/call invocations (60/min, mcp_bump_usage); 'request' = every
+-- authenticated HTTP request of any MCP method (300/min ceiling, mcp_bump_requests).
 create table public.mcp_key_usage (
   key_id uuid not null references public.mcp_keys (id) on delete cascade,
+  kind text not null default 'tool' check (kind in ('tool', 'request')),
   minute timestamptz not null,
   calls int not null default 0,
-  primary key (key_id, minute)
+  primary key (key_id, kind, minute)
 );
 
 -- ---------- RLS: mcp_keys ----------
@@ -90,36 +93,52 @@ grant select, insert, update, delete on public.mcp_keys, public.mcp_key_usage to
 
 -- ---------- mcp_resolve_key: service-role-only lookup used by the MCP route handler ----------
 -- Resolves a hashed key to (key_id, user_id) iff the key is not revoked, not expired and the
--- owning profile is 'active'; stamps last_used_at in the same statement. Returns zero rows for
--- any other reason (revoked/expired/disabled/unknown hash) -- the caller cannot distinguish why.
+-- owning profile is 'active'. Returns zero rows for any other reason (revoked/expired/disabled/
+-- unknown hash) -- the caller cannot distinguish why. last_used_at is stamped at most once a
+-- minute (it is resolved on EVERY MCP request, and a row write per request would be pure churn);
+-- the identity is returned regardless of whether the stamp happened.
 create or replace function public.mcp_resolve_key(p_hash text)
 returns table (key_id uuid, user_id uuid)
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_id uuid;
+  v_user uuid;
 begin
-  return query
-  update public.mcp_keys k
-     set last_used_at = now()
+  select k.id, k.user_id into v_id, v_user
+    from public.mcp_keys k
    where k.key_hash = p_hash
      and k.revoked_at is null
      and k.expires_at > now()
      and exists (
        select 1 from public.user_profiles p
        where p.id = k.user_id and p.status = 'active'
-     )
-  returning k.id, k.user_id;
+     );
+
+  if v_id is null then
+    return;
+  end if;
+
+  update public.mcp_keys
+     set last_used_at = now()
+   where id = v_id
+     and (last_used_at is null or last_used_at < now() - interval '1 minute');
+
+  key_id := v_id;
+  user_id := v_user;
+  return next;
 end;
 $$;
 
 revoke all on function public.mcp_resolve_key(text) from public, anon, authenticated;
 grant execute on function public.mcp_resolve_key(text) to service_role;
 
--- ---------- mcp_bump_usage: service-role-only per-minute call counter ----------
--- Upserts (key_id, current minute) calls+1, prunes rows for this key older than an hour, and
--- returns the current minute's count.
-create or replace function public.mcp_bump_usage(p_key_id uuid)
+-- ---------- usage counters (service-role only) ----------
+-- Shared upsert: (key_id, kind, current minute) calls+1, prunes this key's rows older than an
+-- hour, returns the current minute's count for that kind. Not executable by any client role.
+create or replace function public.mcp_bump_counter(p_key_id uuid, p_kind text)
 returns int
 language plpgsql
 security definer
@@ -129,9 +148,9 @@ declare
   v_minute timestamptz := date_trunc('minute', now());
   v_calls int;
 begin
-  insert into public.mcp_key_usage (key_id, minute, calls)
-  values (p_key_id, v_minute, 1)
-  on conflict (key_id, minute) do update set calls = mcp_key_usage.calls + 1
+  insert into public.mcp_key_usage (key_id, kind, minute, calls)
+  values (p_key_id, p_kind, v_minute, 1)
+  on conflict (key_id, kind, minute) do update set calls = mcp_key_usage.calls + 1
   returning calls into v_calls;
 
   delete from public.mcp_key_usage
@@ -141,5 +160,26 @@ begin
 end;
 $$;
 
+revoke all on function public.mcp_bump_counter(uuid, text) from public, anon, authenticated, service_role;
+
+-- Tool calls this minute (60/min limit, decided in the app).
+create or replace function public.mcp_bump_usage(p_key_id uuid)
+returns int
+language sql
+security definer
+set search_path = public
+as $$ select public.mcp_bump_counter(p_key_id, 'tool'); $$;
+
 revoke all on function public.mcp_bump_usage(uuid) from public, anon, authenticated;
 grant execute on function public.mcp_bump_usage(uuid) to service_role;
+
+-- Every authenticated MCP request this minute, any method (300/min ceiling, decided in the app).
+create or replace function public.mcp_bump_requests(p_key_id uuid)
+returns int
+language sql
+security definer
+set search_path = public
+as $$ select public.mcp_bump_counter(p_key_id, 'request'); $$;
+
+revoke all on function public.mcp_bump_requests(uuid) from public, anon, authenticated;
+grant execute on function public.mcp_bump_requests(uuid) to service_role;

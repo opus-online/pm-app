@@ -8,8 +8,8 @@ import { FORBIDDEN_NAME_PATTERN, TOOLS } from "@/lib/mcp/registry";
 import { runTool } from "@/lib/mcp/run-tool";
 import type { ToolContext } from "@/lib/mcp/types";
 
-// Service-role use is confined to this module and to exactly two calls: resolving a key hash
-// (mcp_resolve_key) and bumping the per-key usage counter (mcp_bump_usage). Tools never see
+// Service-role use is confined to this module and to exactly three calls: resolving a key hash
+// (mcp_resolve_key) and bumping the per-key counters (mcp_bump_requests, mcp_bump_usage). Tools never see
 // the admin client -- they get ToolContext.supabase, the user-scoped client.
 
 /** Real key resolver: service-role `mcp_resolve_key(p_hash)` -- empty for unknown, revoked,
@@ -21,6 +21,13 @@ export const resolveKeyHash: KeyResolver = async (keyHash) => {
   const row = data?.[0];
   return row ? { keyId: row.key_id, userId: row.user_id } : null;
 };
+
+/** Increments and returns this minute's authenticated-request count (any method) for the key. */
+export async function bumpRequests(keyId: string): Promise<number> {
+  const { data, error } = await createAdminClient().rpc("mcp_bump_requests", { p_key_id: keyId });
+  if (error) throw new Error(`mcp_bump_requests: ${error.message}`);
+  return data;
+}
 
 /** Increments and returns this minute's tool-call count for the key. */
 async function bumpUsage(keyId: string): Promise<number> {

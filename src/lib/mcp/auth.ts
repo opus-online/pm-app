@@ -3,6 +3,7 @@
 // (tests/mcp-auth.test.ts). The real resolver (service-role `mcp_resolve_key` RPC) is wired in
 // ./server.ts. Spec: docs/superpowers/specs/2026-10-09-ai-assistant-mcp-design.md (Identity).
 import { hashKey } from "@/lib/mcp/keys";
+import { isOverRequestCeiling } from "@/lib/mcp/rate-limit";
 
 export type McpAuth = { userId: string; keyId: string };
 
@@ -58,4 +59,26 @@ export async function authenticateRequest(req: Request, resolve: KeyResolver): P
     return unauthorized("Invalid, expired or revoked access key.");
   }
   return resolved;
+}
+
+/** Increments and returns this minute's authenticated-request count for the key. */
+export type RequestBumper = (keyId: string) => Promise<number>;
+
+/**
+ * Per-key ceiling on every authenticated request (all MCP methods). Returns null when the request
+ * may proceed, 429 JSON (Retry-After: 60) over the ceiling, or 503 JSON if the counter fails
+ * (fail closed).
+ */
+export async function enforceRequestCeiling(auth: McpAuth, bump: RequestBumper): Promise<Response | null> {
+  let requests: number;
+  try {
+    requests = await bump(auth.keyId);
+  } catch (err) {
+    console.error("mcp request counter failed:", err instanceof Error ? err.message : err);
+    return jsonError(503, "unavailable", "Could not process the request right now. Try again shortly.");
+  }
+  if (isOverRequestCeiling(requests)) {
+    return jsonError(429, "rate_limited", "Too many requests for this key, try again in a minute.", { "retry-after": "60" });
+  }
+  return null;
 }

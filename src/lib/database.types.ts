@@ -863,16 +863,19 @@ export type Database = {
         Row: {
           calls: number
           key_id: string
+          kind: string
           minute: string
         }
         Insert: {
           calls?: number
           key_id: string
+          kind?: string
           minute: string
         }
         Update: {
           calls?: number
           key_id?: string
+          kind?: string
           minute?: string
         }
         Relationships: [
@@ -2404,6 +2407,11 @@ export type Database = {
           user_agent: string
         }[]
       }
+      mcp_bump_counter: {
+        Args: { p_key_id: string; p_kind: string }
+        Returns: number
+      }
+      mcp_bump_requests: { Args: { p_key_id: string }; Returns: number }
       mcp_bump_usage: { Args: { p_key_id: string }; Returns: number }
       mcp_resolve_key: {
         Args: { p_hash: string }

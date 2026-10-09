@@ -70,6 +70,7 @@ const whoami = defineTool({
     ]);
     check(profileRes.error, "your profile");
     if (!profileRes.data) notFound("Your profile");
+    check(rolesRes.error ?? personRes.error ?? keyRes.error ?? permRes.find((r) => r.error)?.error ?? null, "your account details");
     const capabilities = Object.fromEntries(perms.map((p, i) => [p, permRes[i].data === true]));
     return toText(
       compact({
@@ -208,13 +209,17 @@ const getProject = defineTool({
       ...(updates.data ?? []).map((u) => u.author_id),
     ]);
     const responsibleIds = [...new Set((parts.data ?? []).map((x) => x.responsible_person_id).filter((v): v is string => !!v))];
-    const { data: responsible } = responsibleIds.length
+    const { data: responsible, error: responsibleError } = responsibleIds.length
       ? await supabase.from("people").select("id, full_name").in("id", responsibleIds)
-      : { data: [] as { id: string; full_name: string }[] };
+      : { data: [] as { id: string; full_name: string }[], error: null };
+    check(responsibleError, "project parts");
     const responsibleName = new Map((responsible ?? []).map((r) => [r.id, r.full_name]));
 
     const progress = deriveProgress((parts.data ?? []).map((x) => ({ status: x.status, estimated_hours: x.estimated_hours })));
-    const budgetSummary = budget.data
+    // Only when the viewer can actually see budget figures (RLS nulls them otherwise) -- a bare
+    // budget_type alone is not a budget summary.
+    const budgetVisible = !!budget.data && (budget.data.client_amount !== null || budget.data.remaining !== null);
+    const budgetSummary = budgetVisible && budget.data
       ? compact({
           type: budget.data.budget_type,
           client_amount: budget.data.client_amount,
@@ -223,7 +228,7 @@ const getProject = defineTool({
           remaining: budget.data.remaining,
           consumption_pct: round1(budget.data.consumption_pct),
         })
-      : {};
+      : null;
 
     return toText(
       compact({
@@ -269,7 +274,7 @@ const getProject = defineTool({
             decisions_needed: u.decisions_needed,
           })
         ),
-        budget: Object.keys(budgetSummary).length > 1 ? budgetSummary : null,
+        budget: budgetSummary,
         url: appUrl(`/projects/${p.id}`),
       })
     );
