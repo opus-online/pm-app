@@ -59,3 +59,11 @@ export function visibleProjectTags(tags: string[] | null | undefined) {
 export function withProjectIcon(tags: string[], iconKey: ProjectIconKey) {
   return [...visibleProjectTags(tags), PREFIX + iconKey];
 }
+
+/** Replaces a project's visible tags while keeping its hidden `_icon:` tag exactly as stored
+ * (no icon tag is added when the project had none). Visible input tags that look like the
+ * hidden prefix are dropped, so callers can't forge or duplicate the icon tag. */
+export function replaceVisibleTags(current: string[] | null | undefined, visible: string[]) {
+  const hidden = (current ?? []).filter((tag) => tag.startsWith(PREFIX));
+  return [...visibleProjectTags(visible), ...hidden];
+}

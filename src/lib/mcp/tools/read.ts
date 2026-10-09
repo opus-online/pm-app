@@ -251,6 +251,7 @@ const getProject = defineTool({
         client_notes: p.client_notes,
         parts: (parts.data ?? []).slice(0, MAX_ROWS).map((x) =>
           compact({
+            id: x.id,
             name: x.name,
             status: x.status,
             estimated_hours: x.estimated_hours,
@@ -578,7 +579,7 @@ const getBudget = defineTool({
     const items = budgetIds.length
       ? await supabase
           .from("budget_items")
-          .select("name, item_type, amount, occurred_on, note")
+          .select("id, name, item_type, amount, occurred_on, note")
           .in("budget_id", budgetIds)
           .order("occurred_on", { ascending: false })
           .limit(20)
@@ -618,7 +619,7 @@ const getBudget = defineTool({
           })
         ),
         latest_items: (items.data ?? []).map((i) =>
-          compact({ date: fmtDate(i.occurred_on), type: i.item_type, name: i.name, amount: i.amount, note: i.note })
+          compact({ id: i.id, date: fmtDate(i.occurred_on), type: i.item_type, name: i.name, amount: i.amount, note: i.note })
         ),
         currency: "EUR",
         url: appUrl(`/projects/${b.id}/budget`),

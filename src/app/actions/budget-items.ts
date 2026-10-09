@@ -6,35 +6,11 @@ import { requirePermission } from "@/lib/auth/require-permission";
 import { createClient } from "@/lib/supabase/server";
 import { writeAudit } from "@/lib/audit";
 import { budgetItemSchema, type BudgetItemInput } from "@/lib/validation/budget";
+import { ensureProjectBudgetId } from "@/lib/budget-row";
 
 type ActionResult = { error: string } | { success: true; id: number };
 
 const COST_ITEM_TYPES = new Set(["planned_cost", "actual_cost"]);
-
-/** Finds the project-level budget row (part_id is null) for a project, creating it on first use.
- * Every seeded project today only ever gets budget_items via this project-level row -- part-level
- * budgets (budgets.part_id set) exist in the schema but nothing in the app writes to them yet;
- * out of scope here. Caller must already hold manage_budget (checked by callers of this helper). */
-async function ensureProjectBudgetId(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  projectId: string
-): Promise<{ id: string } | { error: string }> {
-  const { data: existing } = await supabase
-    .from("budgets")
-    .select("id")
-    .eq("project_id", projectId)
-    .is("part_id", null)
-    .maybeSingle();
-  if (existing) return { id: existing.id };
-
-  const { data: created, error } = await supabase
-    .from("budgets")
-    .insert({ project_id: projectId })
-    .select("id")
-    .single();
-  if (error || !created) return { error: "Could not create the project budget." };
-  return { id: created.id };
-}
 
 /** Add a budget_items row (invoice/payment/change/planned_cost/actual_cost) to the project's
  * budget, creating the project-level budget row on first use. Gated by manage_budget for every

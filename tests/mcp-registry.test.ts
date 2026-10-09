@@ -9,6 +9,8 @@ const EXPECTED = [
   "sales_overview", "get_company", "my_next_steps",
   "log_activity", "plan_step", "complete_step", "update_step", "cancel_step", "move_entry_to_steps",
   "create_lead", "update_deal", "save_offer",
+  // Projects (Task 5)
+  "post_status_update", "update_project", "log_time", "add_budget_item", "update_budget_item",
 ];
 
 // Write tools planned in the spec (Tasks 4/5) -- must stay registrable under the guard.

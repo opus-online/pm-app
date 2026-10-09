@@ -26,6 +26,7 @@ export type AuditAction =
   | "part_billing.updated"
   | "part_costs.updated"
   | "budget_item.added"
+  | "budget_item.updated"
   | "budget_item.deleted"
   | "member.added"
   | "member.updated"
