@@ -9,6 +9,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit";
 import {
   approveUserSchema, changeUserRoleSchema, type ApproveUserInput,
+  createUserSchema,
+  type CreateUserInput,
 } from "@/lib/validation/auth";
 
 export async function approveUserAction(
@@ -235,4 +237,72 @@ export async function adminSignOutUserAction(
 
   revalidatePath("/admin/users");
   return { success: true as const };
+}
+
+/**
+ * Admin creates a user directly: confirmed email, active, main role, optional Sales add-on.
+ * The admin chooses (or generates) the password and passes it on; the user can change it in
+ * Settings. Rolls the auth user back if any later step fails, so no half-created accounts.
+ */
+export async function createUserAction(
+  input: CreateUserInput
+): Promise<{ error: string } | { success: true; userId: string }> {
+  const admin = await requireAdmin();
+  const parsed = createUserSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the details." };
+  const { fullName, email, role, sales, password } = parsed.data;
+
+  const service = createAdminClient();
+  const { data: created, error: createError } = await service.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: fullName },
+  });
+  if (createError || !created?.user) {
+    const msg = createError?.message ?? "";
+    if (/already|registered|exists/i.test(msg)) return { error: "A user with this email already exists." };
+    if (/password/i.test(msg)) return { error: "That password isn't strong enough." };
+    return { error: "Could not create the user. Try again." };
+  }
+  const userId = created.user.id;
+
+  const rollback = async () => {
+    await service.auth.admin.deleteUser(userId);
+  };
+
+  const { error: profileError } = await service
+    .from("user_profiles")
+    .update({
+      status: "active",
+      full_name: fullName,
+      approved_by: admin.user.id,
+      approved_at: new Date().toISOString(),
+    })
+    .eq("id", userId);
+  if (profileError) {
+    await rollback();
+    return { error: "Could not create the user. Try again." };
+  }
+
+  const roles: { user_id: string; role_key: string; granted_by: string }[] = [
+    { user_id: userId, role_key: role, granted_by: admin.user.id },
+  ];
+  if (sales) roles.push({ user_id: userId, role_key: "sales", granted_by: admin.user.id });
+  const { error: roleError } = await service.from("user_roles").insert(roles);
+  if (roleError) {
+    await rollback();
+    return { error: "Could not assign the role. Try again." };
+  }
+
+  await writeAudit({
+    action: "user.created",
+    actorId: admin.user.id,
+    actorEmail: admin.profile.email,
+    resourceType: "user",
+    resourceId: userId,
+    metadata: { email, role, sales },
+  });
+  revalidatePath("/admin/users");
+  return { success: true as const, userId };
 }

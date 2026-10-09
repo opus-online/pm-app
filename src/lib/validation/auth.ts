@@ -35,3 +35,20 @@ export const changeUserRoleSchema = z.object({
   role: z.enum(APP_ROLES),
 });
 export type ChangeUserRoleInput = z.infer<typeof changeUserRoleSchema>;
+
+/** Admin creates an account directly (User access → Add user). Password rules mirror Supabase
+ * auth config: 12+ chars with lowercase, uppercase and a digit. */
+export const createUserSchema = z.object({
+  fullName: z.string().trim().min(2, "Enter the full name").max(120),
+  email: z.string().trim().toLowerCase().email("Enter a valid email"),
+  role: z.enum(APP_ROLES),
+  sales: z.boolean(),
+  password: z
+    .string()
+    .min(12, "At least 12 characters")
+    .max(128)
+    .regex(/[a-z]/, "Add a lowercase letter")
+    .regex(/[A-Z]/, "Add an uppercase letter")
+    .regex(/\d/, "Add a digit"),
+});
+export type CreateUserInput = z.infer<typeof createUserSchema>;

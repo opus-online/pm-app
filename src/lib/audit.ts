@@ -10,6 +10,7 @@ export type AuditAction =
   | "auth.session_revoked"
   | "auth.sessions_revoked_all"
   | "user.approved"
+  | "user.created"
   | "user.status_changed"
   | "user.role_changed"
   | "project.created"
