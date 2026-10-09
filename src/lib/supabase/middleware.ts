@@ -3,7 +3,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import { decideRedirect, type UserStatus } from "@/lib/auth/gate";
 import type { Database } from "@/lib/database.types";
 
+/** The MCP endpoint authenticates with its own Bearer key, never a session cookie. */
+export function isMcpPath(pathname: string): boolean {
+  return pathname === "/api/mcp" || pathname.startsWith("/api/mcp/");
+}
+
 export async function updateSession(request: NextRequest) {
+  // Belt and braces with the matcher exclusion in src/middleware.ts: never touch the session or
+  // redirect for /api/mcp -- an unauthenticated MCP call must get the route's 401 JSON.
+  if (isMcpPath(request.nextUrl.pathname)) return NextResponse.next({ request });
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient<Database>(
