@@ -1,38 +1,7 @@
-// No top-level "server-only" import here (unlike admin.ts/session.ts) -- same reasoning as
-// lib/delegations.ts: mintUserJwt is pure (the secret is an explicit param, never read from
-// env inside it) and tests/mcp-jwt.test.ts imports it directly, which "server-only" would
-// break under plain node/vitest (it throws unconditionally outside a Next.js client-bundle
-// check). createUserScopedClient below is the only part that touches env/secrets, and it is
-// only ever called from server actions.
-import { SignJWT } from "jose";
+import "server-only";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
-
-const DEFAULT_TTL_SECONDS = 300;
-
-/**
- * Mints a short-lived Supabase-compatible HS256 JWT identifying `userId`, signed with the
- * project's JWT secret. Spec: docs/superpowers/specs/2026-10-09-ai-assistant-mcp-design.md
- * (Identity). Claims are exactly `sub`, `role: 'authenticated'`, `aud: 'authenticated'`, `iat`,
- * `exp` -- nothing else -- so PostgREST/RLS treat the bearer exactly like a normal logged-in
- * user's session token, with no extra trust conferred.
- */
-export async function mintUserJwt(
-  userId: string,
-  secret: string,
-  ttlSeconds: number = DEFAULT_TTL_SECONDS
-): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const key = new TextEncoder().encode(secret);
-
-  return new SignJWT({ role: "authenticated" })
-    .setProtectedHeader({ alg: "HS256" })
-    .setSubject(userId)
-    .setAudience("authenticated")
-    .setIssuedAt(now)
-    .setExpirationTime(now + ttlSeconds)
-    .sign(key);
-}
+import { mintUserJwt } from "@/lib/mcp/jwt";
 
 /**
  * A supabase-js client acting as `userId`: anon key + `Authorization: Bearer <minted JWT>`.

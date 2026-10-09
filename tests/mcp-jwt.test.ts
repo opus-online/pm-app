@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { jwtVerify } from "jose";
-import { mintUserJwt } from "@/lib/mcp/user-client";
+import { mintUserJwt } from "@/lib/mcp/jwt";
 
 const SECRET = "test-jwt-secret-at-least-32-characters-long";
 const USER_A = "10000003-0000-4000-8000-000000000003";
@@ -19,12 +19,13 @@ describe("mintUserJwt", () => {
     await expect(jwtVerify(token, wrongKey)).rejects.toThrow();
   });
 
-  it("has the exact claims: sub, role, aud, exp, iat", async () => {
+  it("has exactly the claims: sub, role, aud, exp, iat -- nothing else", async () => {
     const token = await mintUserJwt(USER_A, SECRET);
     const key = new TextEncoder().encode(SECRET);
     const { payload, protectedHeader } = await jwtVerify(token, key);
 
     expect(protectedHeader.alg).toBe("HS256");
+    expect(Object.keys(payload).sort()).toEqual(["aud", "exp", "iat", "role", "sub"]);
     expect(payload.sub).toBe(USER_A);
     expect(payload.role).toBe("authenticated");
     expect(payload.aud).toBe("authenticated");
@@ -55,5 +56,18 @@ describe("mintUserJwt", () => {
     expect(a.sub).toBe(USER_A);
     expect(b.sub).toBe(USER_B);
     expect(a.sub).not.toBe(b.sub);
+  });
+
+  it("rejects a non-uuid userId", async () => {
+    await expect(mintUserJwt("not-a-uuid", SECRET)).rejects.toThrow(/uuid/i);
+  });
+
+  it("rejects a ttl above 300 seconds", async () => {
+    await expect(mintUserJwt(USER_A, SECRET, 301)).rejects.toThrow(/ttlSeconds/);
+  });
+
+  it("rejects a ttl of 0 or below", async () => {
+    await expect(mintUserJwt(USER_A, SECRET, 0)).rejects.toThrow(/ttlSeconds/);
+    await expect(mintUserJwt(USER_A, SECRET, -5)).rejects.toThrow(/ttlSeconds/);
   });
 });

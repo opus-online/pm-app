@@ -95,6 +95,6 @@ export async function revokeMcpKeyAction(id: string): Promise<RevokeResult> {
   });
 
   revalidatePath("/settings");
-  revalidatePath("/admin/access");
+  revalidatePath("/admin/users");
   return { success: true as const };
 }
