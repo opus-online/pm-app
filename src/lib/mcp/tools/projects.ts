@@ -122,6 +122,19 @@ export function buildProjectPatch(input: Record<string, unknown>, currentTags: s
   return parsed;
 }
 
+/** start_date must not be after deadline, judged on the values the project will have after the
+ * update (a side that isn't sent keeps its current value). */
+export function assertDateOrder(
+  patch: Pick<ProjectPatch, "start_date" | "deadline">,
+  current: { start_date: string | null; deadline: string | null }
+): void {
+  const start = patch.start_date !== undefined ? patch.start_date : current.start_date;
+  const end = patch.deadline !== undefined ? patch.deadline : current.deadline;
+  if (start && end && start > end) {
+    throw new ToolError(`The start date (${fmtDate(start)}) can't be after the deadline (${fmtDate(end)}).`);
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Tools
 
@@ -180,17 +193,19 @@ const updateProject = defineTool({
     await requirePerm(ctx, "edit_project", project_id, NO_EDIT_PROJECT);
     const { data: current, error: curError } = await ctx.supabase
       .from("projects")
-      .select("id, name, tags")
+      .select("id, name, tags, start_date, deadline")
       .eq("id", project_id)
       .maybeSingle();
     check(curError, "the project");
     if (!current) notFound("Project");
     const patch = buildProjectPatch(fields, current.tags);
+    assertDateOrder(patch, current);
 
     // start_date/deadline are derived from the start/end milestones by a DB trigger (the edit
-    // dialog edits milestones, not the columns). Move the matching milestone too, so the next
-    // dialog save doesn't put the old date back; clearing a milestone-backed date is refused.
-    const milestoneMoves: { id: string; due_on: string }[] = [];
+    // dialog edits milestones, not the columns). A milestone-backed date is therefore written by
+    // moving the milestone (the trigger syncs the column) -- otherwise the next dialog save would
+    // put the old date back. Clearing a milestone-backed date is refused.
+    const milestoneMoves: { id: string; field: "start_date" | "deadline"; due_on: string }[] = [];
     const dateKinds = [["start_date", "start"], ["deadline", "end"]] as const;
     if (dateKinds.some(([field]) => field in patch)) {
       const { data: ms, error: msError } = await ctx.supabase
@@ -207,25 +222,60 @@ const updateProject = defineTool({
         if (!value) {
           throw new ToolError(`The ${field === "deadline" ? "deadline" : "start date"} comes from the "${m.name}" milestone. Give a new date instead of clearing it.`);
         }
-        milestoneMoves.push({ id: m.id, due_on: value });
+        milestoneMoves.push({ id: m.id, field, due_on: value });
       }
     }
 
-    const { data: updated, error } = await ctx.supabase.from("projects").update(patch).eq("id", project_id).select("id").maybeSingle();
-    if (error || !updated) {
-      if (error) console.error("mcp update_project failed:", error.code, error.message);
-      throw new ToolError(error ? "Update failed. Try again." : NO_EDIT_PROJECT);
-    }
+    // Every path that wrote something is audited -- a failure after a partial write records
+    // exactly what changed (metadata.partial) before the friendly error.
+    const written: ProjectPatch = {};
+    const auditWritten = async (partial: boolean) => {
+      const audited = { ...written, ...(written.tags ? { tags: visibleProjectTags(written.tags) } : {}) };
+      await ctx.audit({
+        action: written.status === "archived" ? "project.archived" : "project.updated",
+        resourceType: "project",
+        resourceId: project_id,
+        metadata: { fields: audited, ...(partial ? { partial: true } : {}) },
+      });
+    };
+    const fail = async (message: string): Promise<never> => {
+      if (Object.keys(written).length) await auditWritten(true);
+      throw new ToolError(message);
+    };
+
+    // 1. Milestones first (the trigger syncs the date columns).
     for (const move of milestoneMoves) {
-      const { error: mError } = await ctx.supabase.from("project_milestones").update({ due_on: move.due_on }).eq("id", move.id).eq("project_id", project_id);
-      if (mError) {
-        console.error("mcp update_project milestone move failed:", mError.code, mError.message);
-        throw new ToolError("The project was updated, but moving its milestone date failed. Check the timeline in the app.");
+      const { data: moved, error: mError } = await ctx.supabase
+        .from("project_milestones")
+        .update({ due_on: move.due_on })
+        .eq("id", move.id)
+        .eq("project_id", project_id)
+        .select("id")
+        .maybeSingle();
+      if (mError || !moved) {
+        if (mError) console.error("mcp update_project milestone move failed:", mError.code, mError.message);
+        await fail(mError ? "Update failed. Try again." : NO_EDIT_PROJECT);
       }
+      written[move.field] = move.due_on;
     }
 
-    const audited = { ...patch, ...(patch.tags ? { tags: visibleProjectTags(patch.tags) } : {}) };
-    await ctx.audit({ action: "project.updated", resourceType: "project", resourceId: project_id, metadata: { fields: audited } });
+    // 2. Then the project's own columns (milestone-backed dates are already written).
+    const projectPatch: ProjectPatch = { ...patch };
+    for (const move of milestoneMoves) delete projectPatch[move.field];
+    if (Object.keys(projectPatch).length) {
+      const { data: updated, error } = await ctx.supabase.from("projects").update(projectPatch).eq("id", project_id).select("id").maybeSingle();
+      if (error || !updated) {
+        if (error) console.error("mcp update_project failed:", error.code, error.message);
+        await fail(
+          Object.keys(written).length
+            ? "Only the milestone date was changed; saving the other fields failed. Try again."
+            : error ? "Update failed. Try again." : NO_EDIT_PROJECT
+        );
+      }
+      Object.assign(written, projectPatch);
+    }
+
+    await auditWritten(false);
     revalidate(["/projects"], ["/projects/[id]", "layout"]);
     return toText(
       compact({

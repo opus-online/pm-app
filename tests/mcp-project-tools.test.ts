@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { TOOLS } from "@/lib/mcp/registry";
 import {
   NO_EDIT_PROJECT, NO_EDIT_STATUS, NO_INTERNAL_COST, NO_LOG_TIME, NO_MANAGE_BUDGET, PROJECT_WRITE_TOOLS,
-  UPDATABLE_PROJECT_FIELDS, buildProjectPatch,
+  UPDATABLE_PROJECT_FIELDS, assertDateOrder, buildProjectPatch,
 } from "@/lib/mcp/tools/projects";
 import { WRITE_NOTE } from "@/lib/mcp/tools/sales";
 import { replaceVisibleTags } from "@/lib/project-icons";
@@ -153,5 +153,153 @@ describe("project tool permission gates", () => {
       tool("add_budget_item").run({ project_id: ID, item_type: "actual_cost", name: "Hosting", amount: 100, occurred_on: "2026-10-01" }, ctx)
     ).rejects.toThrow(NO_INTERNAL_COST);
     expect(audit).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// A chainable fake of the user-scoped client: every query is recorded and answered by `respond`.
+
+type Call = { table: string; op: "select" | "update" | "insert"; values?: unknown; filters: [string, unknown][] };
+type Answer = { data: unknown; error: { code?: string; message: string } | null };
+
+function dbCtx(respond: (c: Call) => Answer, perms: Record<string, boolean> = {}) {
+  const calls: Call[] = [];
+  const audit = vi.fn();
+  const from = (table: string) => {
+    const call: Call = { table, op: "select", filters: [] };
+    let recorded = false;
+    const run = () => {
+      if (!recorded) { calls.push(call); recorded = true; }
+      return Promise.resolve(respond(call));
+    };
+    const b: Record<string, unknown> = {
+      select: () => b,
+      update: (v: unknown) => { call.op = "update"; call.values = v; return b; },
+      insert: (v: unknown) => { call.op = "insert"; call.values = v; return b; },
+      eq: (k: string, v: unknown) => { call.filters.push([k, v]); return b; },
+      in: (k: string, v: unknown) => { call.filters.push([k, v]); return b; },
+      is: (k: string, v: unknown) => { call.filters.push([k, v]); return b; },
+      maybeSingle: run,
+      single: run,
+      then: (res: (a: Answer) => unknown, rej: (e: unknown) => unknown) => run().then(res, rej),
+    };
+    return b;
+  };
+  const rpc = vi.fn(async (_fn: string, args: { perm: string }) => ({ data: perms[args.perm] ?? true, error: null }));
+  return { ctx: { supabase: { from, rpc }, userId: ME, keyId: KEY, audit } as never, calls, audit };
+}
+
+const PROJECT = { id: ID, name: "Scanner", tags: ["mobile", "_icon:package"], start_date: "2026-08-10", deadline: "2026-11-08" };
+const END_MS = { id: "44444444-4444-4444-8444-444444444444", name: "Full rollout", kind: "end" };
+
+/** Answers for update_project: the project row, its milestones, and the two kinds of update. */
+function projectDb(opts: { milestones?: unknown[]; milestoneUpdate?: Answer; projectUpdate?: Answer } = {}) {
+  return dbCtx((c) => {
+    if (c.table === "projects" && c.op === "select") return { data: PROJECT, error: null };
+    if (c.table === "project_milestones" && c.op === "select") return { data: opts.milestones ?? [], error: null };
+    if (c.table === "project_milestones" && c.op === "update") return opts.milestoneUpdate ?? { data: { id: END_MS.id }, error: null };
+    if (c.table === "projects" && c.op === "update") return opts.projectUpdate ?? { data: { id: ID }, error: null };
+    throw new Error(`unexpected ${c.op} on ${c.table}`);
+  });
+}
+
+describe("update_project write order and milestone-backed dates", () => {
+  it("moves the end milestone first and leaves the synced deadline out of the project update", async () => {
+    const { ctx, calls, audit } = projectDb({ milestones: [END_MS] });
+    await tool("update_project").run({ project_id: ID, deadline: "2026-11-20", name: "Scanner v2" }, ctx);
+    const writes = calls.filter((c) => c.op === "update");
+    expect(writes.map((c) => c.table)).toEqual(["project_milestones", "projects"]);
+    expect(writes[0].values).toEqual({ due_on: "2026-11-20" });
+    expect(writes[0].filters).toContainEqual(["id", END_MS.id]);
+    expect(writes[1].values).toEqual({ name: "Scanner v2" });
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "project.updated", metadata: { fields: { deadline: "2026-11-20", name: "Scanner v2" } },
+    }));
+  });
+
+  it("skips the project update when only a milestone-backed date changes", async () => {
+    const { ctx, calls } = projectDb({ milestones: [END_MS] });
+    await tool("update_project").run({ project_id: ID, deadline: "2026-11-20" }, ctx);
+    expect(calls.filter((c) => c.op === "update").map((c) => c.table)).toEqual(["project_milestones"]);
+  });
+
+  it("writes the deadline column directly when no end milestone exists", async () => {
+    const { ctx, calls } = projectDb({ milestones: [] });
+    await tool("update_project").run({ project_id: ID, deadline: "2026-11-20" }, ctx);
+    const writes = calls.filter((c) => c.op === "update");
+    expect(writes.map((c) => c.table)).toEqual(["projects"]);
+    expect(writes[0].values).toEqual({ deadline: "2026-11-20" });
+  });
+
+  it("refuses to clear a milestone-backed date and writes nothing", async () => {
+    const { ctx, calls, audit } = projectDb({ milestones: [END_MS] });
+    await expect(tool("update_project").run({ project_id: ID, deadline: null }, ctx)).rejects.toThrow(/Full rollout.*instead of clearing/);
+    expect(calls.filter((c) => c.op === "update")).toEqual([]);
+    expect(audit).not.toHaveBeenCalled();
+  });
+
+  it("a milestone move that changes no row fails with nothing audited", async () => {
+    const { ctx, calls, audit } = projectDb({ milestones: [END_MS], milestoneUpdate: { data: null, error: null } });
+    await expect(tool("update_project").run({ project_id: ID, deadline: "2026-11-20", name: "X" }, ctx)).rejects.toThrow(NO_EDIT_PROJECT);
+    expect(calls.filter((c) => c.op === "update").map((c) => c.table)).toEqual(["project_milestones"]);
+    expect(audit).not.toHaveBeenCalled();
+  });
+
+  it("audits the partial change when the project update fails after the milestone moved", async () => {
+    const { ctx, audit } = projectDb({ milestones: [END_MS], projectUpdate: { data: null, error: { code: "XX000", message: "boom" } } });
+    await expect(tool("update_project").run({ project_id: ID, deadline: "2026-11-20", name: "X" }, ctx)).rejects.toThrow(/Only the milestone date was changed/);
+    expect(audit).toHaveBeenCalledTimes(1);
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "project.updated", metadata: { fields: { deadline: "2026-11-20" }, partial: true },
+    }));
+  });
+
+  it("audits archiving as project.archived", async () => {
+    const { ctx, audit } = projectDb();
+    await tool("update_project").run({ project_id: ID, status: "archived" }, ctx);
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: "project.archived", metadata: { fields: { status: "archived" } } }));
+  });
+});
+
+describe("start date / deadline order", () => {
+  const current = { start_date: "2026-08-10", deadline: "2026-11-08" };
+  it("checks the side that isn't sent against its current value", () => {
+    expect(() => assertDateOrder({ deadline: "2026-08-01" }, current)).toThrow(/can't be after the deadline/);
+    expect(() => assertDateOrder({ start_date: "2026-12-01" }, current)).toThrow(/can't be after the deadline/);
+    expect(() => assertDateOrder({ start_date: "2026-09-01", deadline: "2026-08-01" }, current)).toThrow(/can't be after/);
+    expect(() => assertDateOrder({ deadline: "2026-08-10" }, current)).not.toThrow();
+    expect(() => assertDateOrder({ deadline: null }, current)).not.toThrow();
+    expect(() => assertDateOrder({ start_date: "2027-01-01", deadline: null }, current)).not.toThrow();
+  });
+
+  it("update_project refuses an inverted range before writing", async () => {
+    const { ctx, calls, audit } = projectDb({ milestones: [END_MS] });
+    await expect(tool("update_project").run({ project_id: ID, deadline: "2026-07-01" }, ctx)).rejects.toThrow(/can't be after the deadline/);
+    expect(calls.filter((c) => c.op === "update")).toEqual([]);
+    expect(audit).not.toHaveBeenCalled();
+  });
+});
+
+describe("update_budget_item cost gate", () => {
+  const costItem = { id: 45, item_type: "actual_cost", budget_id: "b1", budgets: { project_id: ID } };
+  const budgetDb = (perms: Record<string, boolean>) =>
+    dbCtx((c) => {
+      if (c.table === "budget_items" && c.op === "select") return { data: costItem, error: null };
+      if (c.table === "budget_items" && c.op === "update") return { data: { id: 45 }, error: null };
+      throw new Error(`unexpected ${c.op} on ${c.table}`);
+    }, perms);
+
+  it("a stored cost item needs view_internal_cost; nothing is written", async () => {
+    const { ctx, calls, audit } = budgetDb({ manage_budget: true, view_internal_cost: false });
+    await expect(tool("update_budget_item").run({ item_id: 45, amount: 1 }, ctx)).rejects.toThrow(NO_INTERNAL_COST);
+    expect(calls.filter((c) => c.op === "update")).toEqual([]);
+    expect(audit).not.toHaveBeenCalled();
+  });
+
+  it("finance can update it (only the sent fields)", async () => {
+    const { ctx, calls, audit } = budgetDb({ manage_budget: true, view_internal_cost: true });
+    await tool("update_budget_item").run({ item_id: 45, amount: 250 }, ctx);
+    expect(calls.filter((c) => c.op === "update")[0].values).toEqual({ amount: 250 });
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: "budget_item.updated" }));
   });
 });
