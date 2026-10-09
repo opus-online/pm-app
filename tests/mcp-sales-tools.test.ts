@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { TOOLS } from "@/lib/mcp/registry";
-import { NO_MANAGE_SALES, NO_VIEW_SALES, SALES_READ_TOOLS, SALES_WRITE_TOOLS, WRITE_NOTE, resolvePersonRef } from "@/lib/mcp/tools/sales";
+import {
+  NO_MANAGE_SALES, NO_VIEW_SALES, SALES_READ_TOOLS, SALES_WRITE_TOOLS, WRITE_NOTE, lostReasonFor, resolvePersonRef,
+} from "@/lib/mcp/tools/sales";
 import { ToolError } from "@/lib/mcp/types";
 import {
   mapConvertEntryError, mapCreateLeadError, mapDealUpdateError, mapPlanStepInsertError, mapRound3RpcError, mapStepRpcError,
@@ -133,19 +135,69 @@ describe("sales permission gate", () => {
 
 describe("person references", () => {
   const people = [
-    { id: "a", name: "Sara Sales" },
-    { id: "b", name: "Sam Seller" },
-    { id: "c", name: "Sara" },
+    { id: ME, name: "Sara Müük", assignable: true },
+    { id: "b", name: "Sam Seller", assignable: true },
+    { id: "c", name: "Samuel Other", assignable: true },
+    { id: ID, name: "Bella Pm", assignable: false },
+    { id: "e", name: "Sam Twin", assignable: true },
   ];
-  it("resolves me, ids and unique names", () => {
+  it("resolves me, assignable ids, exact full names and unique first names (case-insensitive)", () => {
     expect(resolvePersonRef("me", ME, people)).toBe(ME);
-    expect(resolvePersonRef(ID, ME, people)).toBe(ID);
-    expect(resolvePersonRef("sam", ME, people)).toBe("b");
-    expect(resolvePersonRef("Sara", ME, people)).toBe("c"); // exact match wins
+    expect(resolvePersonRef(ME, ME, people)).toBe(ME);
+    expect(resolvePersonRef("sam seller", ME, people)).toBe("b");
+    expect(resolvePersonRef("SARA", ME, people)).toBe(ME);
+    expect(resolvePersonRef("samuel", ME, people)).toBe("c");
   });
-  it("rejects unknown and ambiguous names", () => {
-    expect(() => resolvePersonRef("bob", ME, people)).toThrow(/No Sales person/);
-    expect(() => resolvePersonRef("sa", ME, people)).toThrow(/several people/);
+  it("never silently picks a partial match", () => {
+    expect(() => resolvePersonRef("sar", ME, people)).toThrow(/No assignable Sales person is named "sar".*Did you mean: Sara Müük/);
+    expect(() => resolvePersonRef("Seller", ME, people)).toThrow(/Did you mean: Sam Seller/);
+  });
+  it("lists candidates when a first name is ambiguous", () => {
+    expect(() => resolvePersonRef("sam", ME, people)).toThrow(/several people: Sam Seller, Sam Twin/);
+  });
+  it("only matches assignable people for assignee/done_by/owner", () => {
+    expect(() => resolvePersonRef("Bella Pm", ME, people)).toThrow(/No assignable Sales person/);
+    expect(() => resolvePersonRef(ID, ME, people)).toThrow(/doesn't have Sales access/);
+    expect(() => resolvePersonRef("me", ID, people)).toThrow(/You don't have Sales access/);
+  });
+  it("the responsible filter (assignableOnly false) may name anyone, still exact only", () => {
+    expect(resolvePersonRef("bella pm", ME, people, { assignableOnly: false })).toBe(ID);
+    expect(resolvePersonRef(ID, ME, [], { assignableOnly: false })).toBe(ID);
+    expect(() => resolvePersonRef("bel", ME, people, { assignableOnly: false })).toThrow(/No Sales person is named/);
+  });
+});
+
+describe("deal lost-reason rule", () => {
+  it("moving to any non-lost stage clears the reason", () => {
+    expect(lostReasonFor("negotiation", undefined, null)).toBeNull();
+    expect(lostReasonFor("won", "", null)).toBeNull();
+  });
+  it("rejects a reason passed with a non-lost stage", () => {
+    expect(() => lostReasonFor("negotiation", "Budget", null)).toThrow(/only applies to a lost deal/);
+  });
+  it("lost needs a reason", () => {
+    expect(() => lostReasonFor("lost", undefined, null)).toThrow(/needs a reason/);
+    expect(() => lostReasonFor("lost", "  ", null)).toThrow(/needs a reason/);
+    expect(lostReasonFor("lost", " Budget ", "negotiation")).toBe("Budget");
+  });
+  it("a reason alone only changes on a deal that is already lost, and can't be blanked", () => {
+    expect(lostReasonFor(undefined, "New reason", "lost")).toBe("New reason");
+    expect(() => lostReasonFor(undefined, "x", "negotiation")).toThrow(/isn't lost/);
+    expect(() => lostReasonFor(undefined, "", "lost")).toThrow(/needs a reason/);
+  });
+  it("no stage and no reason leaves the column alone", () => {
+    expect(lostReasonFor(undefined, undefined, null)).toBeUndefined();
+  });
+});
+
+describe("save_offer create", () => {
+  it.each([
+    [{ title: "Offer" }, "Amount is required for a new offer."],
+    [{ amount: 100 }, "Title is required for a new offer."],
+  ])("%j is refused before any write", async (fields, message) => {
+    const { ctx, audit } = permissionCtx(true);
+    await expect(tool("save_offer").run({ deal_id: ID, ...fields }, ctx)).rejects.toThrow(message);
+    expect(audit).not.toHaveBeenCalled();
   });
 });
 

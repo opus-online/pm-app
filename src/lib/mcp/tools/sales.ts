@@ -24,6 +24,7 @@ import {
   mapRound3RpcError,
   mapStepRpcError,
 } from "@/lib/sales/rpc-errors";
+import { revalidateSales } from "@/lib/sales/revalidate";
 import { timelineAt } from "@/lib/sales/timeline-filter";
 import { ACTIVITY_KINDS, CLOSED_STAGES, DEAL_SOURCES, DEAL_STAGES, OFFER_STATUSES } from "@/lib/sales/types";
 import { compareDueDates, daysUntil } from "@/lib/sales/urgency";
@@ -109,24 +110,94 @@ async function salesPeople(ctx: ToolContext): Promise<SalesPerson[]> {
 
 const peopleMap = (people: SalesPerson[]) => new Map<string, StepPerson>(people.map((p) => [p.id, p]));
 
-/** Resolves "me" / a user id / a unique Sales person name to a user id. */
-export function resolvePersonRef(ref: string, me: string, people: { id: string; name: string | null }[]): string {
+export type PersonCandidate = { id: string; name: string | null; assignable?: boolean | null };
+
+const listNames = (people: PersonCandidate[]) => people.slice(0, 8).map((p) => p.name ?? p.id).join(", ");
+
+/** Resolves "me" / a user id / a Sales person's name to a user id. Names match only exactly
+ * (case-insensitive) on the full name or the first name -- never a silent partial match; an
+ * ambiguous or unknown name is an error listing the candidates.
+ * assignableOnly (assignee, done_by, owner): only people who may hold Sales work count, and
+ * "me"/an id must be one of them too -- the same set as the app's owner/assignee pickers. */
+export function resolvePersonRef(
+  ref: string,
+  me: string,
+  people: PersonCandidate[],
+  { assignableOnly = true }: { assignableOnly?: boolean } = {}
+): string {
   const value = ref.trim();
-  if (value.toLowerCase() === "me") return me;
-  if (z.uuid().safeParse(value).success) return value;
-  const needle = value.toLowerCase();
-  const exact = people.filter((p) => (p.name ?? "").toLowerCase() === needle);
-  const matches = exact.length ? exact : people.filter((p) => (p.name ?? "").toLowerCase().includes(needle));
-  if (matches.length === 1) return matches[0].id;
-  if (!matches.length) throw new ToolError(`No Sales person matches "${value}". Use "me", a user id, or an exact name.`);
-  throw new ToolError(`"${value}" matches several people (${matches.slice(0, 5).map((p) => p.name).join(", ")}). Use the full name or the user id.`);
+  const pool = assignableOnly ? people.filter((p) => p.assignable === true) : people;
+  const lower = value.toLowerCase();
+  const byId = lower === "me" ? me : z.uuid().safeParse(value).success ? value : null;
+  if (byId) {
+    if (assignableOnly && !pool.some((p) => p.id === byId)) {
+      throw new ToolError(`${lower === "me" ? "You don't" : "That person doesn't"} have Sales access, so can't be assigned Sales work.`);
+    }
+    return byId;
+  }
+  const full = pool.filter((p) => (p.name ?? "").trim().toLowerCase() === lower);
+  const first = full.length ? full : pool.filter((p) => (p.name ?? "").trim().split(/\s+/)[0]?.toLowerCase() === lower);
+  if (first.length === 1) return first[0].id;
+  if (first.length > 1) {
+    throw new ToolError(`"${value}" matches several people: ${listNames(first)}. Use the full name or the user id.`);
+  }
+  const similar = pool.filter((p) => (p.name ?? "").toLowerCase().includes(lower));
+  throw new ToolError(
+    `No ${assignableOnly ? "assignable " : ""}Sales person is named "${value}". ` +
+      (similar.length ? `Did you mean: ${listNames(similar)}?` : `Candidates: ${listNames(pool) || "none"}.`) +
+      ' Use "me", a user id, or the full name.'
+  );
 }
 
-async function resolvePerson(ctx: ToolContext, ref: string, cache: { people?: SalesPerson[] }): Promise<string> {
-  const v = ref.trim().toLowerCase();
-  if (v === "me" || z.uuid().safeParse(ref.trim()).success) return resolvePersonRef(ref, ctx.userId, []);
+type Resolved = { id: string; name: string | null };
+
+/** resolvePersonRef against sales_people() (fetched once per call via `cache`), with the name. */
+async function resolvePerson(ctx: ToolContext, ref: string, cache: { people?: SalesPerson[] }): Promise<Resolved> {
   cache.people ??= await salesPeople(ctx);
-  return resolvePersonRef(ref, ctx.userId, cache.people);
+  const id = resolvePersonRef(ref, ctx.userId, cache.people);
+  return { id, name: cache.people.find((p) => p.id === id)?.name ?? null };
+}
+
+/** The name for a user id from sales_people() (fetched once per call via `cache`). */
+async function personName(ctx: ToolContext, id: string | null, cache: { people?: SalesPerson[] }): Promise<string | null> {
+  if (!id) return null;
+  cache.people ??= await salesPeople(ctx);
+  return cache.people.find((p) => p.id === id)?.name ?? null;
+}
+
+/** Decides the lost_reason write for update_deal. A reason belongs only to a lost deal:
+ * - moving to any other stage clears it (passing one is rejected rather than silently dropped);
+ * - moving to lost requires one;
+ * - a reason alone may only be changed on a deal that is already lost (and not blanked).
+ * Returns the value to write, or undefined to leave the column alone. */
+export function lostReasonFor(
+  stage: (typeof DEAL_STAGES)[number] | undefined,
+  lostReason: string | undefined,
+  currentStage: (typeof DEAL_STAGES)[number] | null
+): string | null | undefined {
+  const reason = lostReason?.trim() ? lostReason.trim() : null;
+  if (stage !== undefined && stage !== "lost") {
+    if (reason) throw new ToolError(`lost_reason only applies to a lost deal. Leave it out when moving the deal to ${stage}.`);
+    return null;
+  }
+  if (stage === "lost" || (lostReason !== undefined && currentStage === "lost")) {
+    if (!reason) throw new ToolError("A lost deal needs a reason. Ask the user why it was lost and pass it as lost_reason.");
+    return reason;
+  }
+  if (lostReason !== undefined) {
+    throw new ToolError("This deal isn't lost, so it has no lost reason. To mark it lost, pass stage \"lost\" with lost_reason.");
+  }
+  return undefined;
+}
+
+/** Marks the Sales list and the company page for revalidation after a successful write (route
+ * handler semantics: refreshed on the next visit). A failure here never fails the write. */
+function revalidate(clientId: string | null | undefined, opts?: { clients?: boolean }): void {
+  try {
+    revalidateSales(clientId, opts);
+  } catch (err) {
+    console.error("mcp sales revalidate failed:", err instanceof Error ? err.message : err);
+  }
 }
 
 const companyUrl = (clientId: string, dealId?: string | null) =>
@@ -172,7 +243,7 @@ const salesOverview = defineTool({
     await requireSales(ctx, "view_sales");
     const people = await salesPeople(ctx);
     const responsibleId =
-      responsible === undefined ? null : responsible.trim().toLowerCase() === "nobody" ? ("nobody" as const) : resolvePersonRef(responsible, ctx.userId, people);
+      responsible === undefined ? null : responsible.trim().toLowerCase() === "nobody" ? ("nobody" as const) : resolvePersonRef(responsible, ctx.userId, people, { assignableOnly: false });
     let rows;
     try {
       rows = await fetchCompanyRows(ctx.supabase, peopleMap(people));
@@ -403,6 +474,7 @@ const logActivity = defineTool({
       throw new ToolError("Save failed. Try again.");
     }
     await ctx.audit({ action: "company.saved", resourceType: "crm_activity", resourceId: data.id, metadata: { client_id, deal_id, kind: k } });
+    revalidate(client_id);
     return toText({ result: "Activity logged", activity_id: data.id, date: fmtDate(data.occurred_at), url: companyUrl(client_id) });
   },
 });
@@ -423,7 +495,8 @@ const planStep = defineTool({
   readOnly: false,
   handler: async (input, ctx) => {
     await requireSales(ctx, "manage_sales");
-    const assignee_id = input.assignee ? await resolvePerson(ctx, input.assignee, {}) : ctx.userId;
+    const assignee = await resolvePerson(ctx, input.assignee ?? "me", {});
+    const assignee_id = assignee.id;
     const { client_id, deal_id, contact_id, kind: k, body, due_on } = parseWith(planStepSchema, {
       client_id: input.company_id,
       deal_id: input.deal_id ?? null,
@@ -448,7 +521,10 @@ const planStep = defineTool({
       resourceId: data.id,
       metadata: { client_id, deal_id, kind: k, status: "planned" },
     });
-    return toText({ result: "Next step planned", activity_id: data.id, due: fmtDate(due_on), assignee_id, url: companyUrl(client_id) });
+    revalidate(client_id);
+    return toText(
+      compact({ result: "Next step planned", activity_id: data.id, due: fmtDate(due_on), assignee: assignee.name, assignee_id, url: companyUrl(client_id) })
+    );
   },
 });
 
@@ -465,7 +541,8 @@ const completeStep = defineTool({
   readOnly: false,
   handler: async (input, ctx) => {
     await requireSales(ctx, "manage_sales");
-    const done_by_id = input.done_by ? await resolvePerson(ctx, input.done_by, {}) : ctx.userId;
+    const doneBy = await resolvePerson(ctx, input.done_by ?? "me", {});
+    const done_by_id = doneBy.id;
     const { activity_id, done_on, done_by, comment } = parseWith(completeStepSchema, {
       activity_id: input.activity_id,
       done_on: input.done_on ?? appDayKey(new Date()),
@@ -483,7 +560,8 @@ const completeStep = defineTool({
     });
     if (error) throw new ToolError(mapStepRpcError(error, "Pick a valid date (not in the future)."));
     await ctx.audit({ action: "company.saved", resourceType: "crm_activity", resourceId: activity_id, metadata: { client_id: clientId, status: "done" } });
-    return toText({ result: "Step marked done", activity_id, done_on: fmtDate(done_on), url: companyUrl(clientId) });
+    revalidate(clientId);
+    return toText(compact({ result: "Step marked done", activity_id, done_on: fmtDate(done_on), done_by: doneBy.name, url: companyUrl(clientId) }));
   },
 });
 
@@ -516,12 +594,14 @@ const updateStep = defineTool({
     if (!cur) notFound("Step");
     if (cur.status !== "planned") throw new ToolError("This step is already done or was removed.");
 
+    const cache: { people?: SalesPerson[] } = {};
+    const newAssignee = assignee ? await resolvePerson(ctx, assignee, cache) : null;
     const merged = {
       activity_id,
       kind: rest.kind ?? cur.kind,
       body: rest.body ?? cur.body,
       due_on: rest.due_on ?? cur.due_on,
-      assignee_id: assignee ? await resolvePerson(ctx, assignee, {}) : cur.assignee_id,
+      assignee_id: newAssignee ? newAssignee.id : cur.assignee_id,
       contact_id: rest.contact_id === undefined ? cur.contact_id : rest.contact_id,
       deal_id: rest.deal_id === undefined ? cur.deal_id : rest.deal_id,
     };
@@ -538,13 +618,18 @@ const updateStep = defineTool({
     });
     if (error) throw new ToolError(mapRound3RpcError(error, "This step is already done or was removed."));
     await ctx.audit({ action: "company.saved", resourceType: "crm_activity", resourceId: activity_id, metadata: { client_id: cur.client_id, status: "planned" } });
-    return toText({
-      result: "Next step updated",
-      activity_id,
-      changed: Object.keys(input).filter((k) => k !== "activity_id" && input[k as keyof typeof input] !== undefined),
-      due: fmtDate(p.due_on),
-      url: companyUrl(cur.client_id),
-    });
+    revalidate(cur.client_id);
+    return toText(
+      compact({
+        result: "Next step updated",
+        activity_id,
+        changed: Object.keys(input).filter((k) => k !== "activity_id" && input[k as keyof typeof input] !== undefined),
+        due: fmtDate(p.due_on),
+        assignee: newAssignee ? newAssignee.name : await personName(ctx, p.assignee_id, cache),
+        assignee_id: p.assignee_id,
+        url: companyUrl(cur.client_id),
+      })
+    );
   },
 });
 
@@ -563,6 +648,7 @@ const cancelStep = defineTool({
     const { error } = await ctx.supabase.rpc("cancel_step", { p_id: activity_id, p_reason: reason ?? "" });
     if (error) throw new ToolError(mapRound3RpcError(error, "This step is already done or was removed."));
     await ctx.audit({ action: "company.saved", resourceType: "crm_activity", resourceId: activity_id, metadata: { client_id: clientId, status: "cancelled" } });
+    revalidate(clientId);
     return toText({ result: "Next step cancelled", activity_id, url: companyUrl(clientId) });
   },
 });
@@ -575,11 +661,11 @@ const moveEntryToSteps = defineTool({
   readOnly: false,
   handler: async (input, ctx) => {
     await requireSales(ctx, "manage_sales");
-    const assignee = input.assignee ? await resolvePerson(ctx, input.assignee, {}) : ctx.userId;
+    const assignee = await resolvePerson(ctx, input.assignee ?? "me", {});
     const { activity_id, due_on, assignee_id } = parseWith(convertEntrySchema, {
       activity_id: input.activity_id,
       due_on: input.due_on,
-      assignee_id: assignee,
+      assignee_id: assignee.id,
     });
     const clientId = await activityClient(ctx, activity_id);
     if (!clientId) notFound("Entry");
@@ -591,7 +677,10 @@ const moveEntryToSteps = defineTool({
       resourceId: activity_id,
       metadata: { client_id: clientId, moved_to_next_steps: true, due_on, assignee_id },
     });
-    return toText({ result: "Entry moved to next steps", activity_id, due: fmtDate(due_on), url: companyUrl(clientId) });
+    revalidate(clientId);
+    return toText(
+      compact({ result: "Entry moved to next steps", activity_id, due: fmtDate(due_on), assignee: assignee.name, assignee_id, url: companyUrl(clientId) })
+    );
   },
 });
 
@@ -634,15 +723,17 @@ const createLead = defineTool({
   handler: async (input, ctx) => {
     await requireSales(ctx, "manage_sales");
     if (!input.company_id && !input.company) throw new ToolError("Pass company_id for an existing company, or company.name for a new one.");
-    const cache = {};
-    const owner_id = input.deal.owner ? await resolvePerson(ctx, input.deal.owner, cache) : ctx.userId;
+    const cache: { people?: SalesPerson[] } = {};
+    const owner = await resolvePerson(ctx, input.deal.owner ?? "me", cache);
+    const owner_id = owner.id;
+    // Unset step assignee -> prepareLeadInput defaults it to the deal owner (as in the app).
     const stepAssignee = input.step?.assignee ? await resolvePerson(ctx, input.step.assignee, cache) : null;
     const raw: NewLeadInput = prepareLeadInput({
       client_id: input.company_id ?? null,
       company: input.company,
       deal: { title: input.deal.title, source: input.deal.source, owner_id },
       contact: input.contact,
-      step: input.step ? { body: input.step.body, due_on: input.step.due_on, kind: input.step.kind ?? null, assignee_id: stepAssignee } : undefined,
+      step: input.step ? { body: input.step.body, due_on: input.step.due_on, kind: input.step.kind ?? null, assignee_id: stepAssignee?.id ?? null } : undefined,
     });
     const { client_id, company, deal, contact, step } = parseWith(newLeadSchema, raw);
 
@@ -663,14 +754,28 @@ const createLead = defineTool({
     if (error) throw new ToolError(mapCreateLeadError(error));
     const { client_id: clientId, deal_id: dealId } = data as { client_id: string; deal_id: string };
     await ctx.audit({ action: "deal.created", resourceType: "deal", resourceId: dealId, metadata: { client_id: clientId } });
-    return toText({ result: "Lead created", company_id: clientId, deal_id: dealId, url: companyUrl(clientId, dealId) });
+    revalidate(clientId, { clients: true });
+    const leadStep = step?.body ? step : null;
+    return toText(
+      compact({
+        result: "Lead created",
+        company_id: clientId,
+        deal_id: dealId,
+        owner: owner.name,
+        owner_id,
+        step: leadStep
+          ? compact({ due: fmtDate(leadStep.due_on), assignee: await personName(ctx, leadStep.assignee_id, cache), assignee_id: leadStep.assignee_id })
+          : null,
+        url: companyUrl(clientId, dealId),
+      })
+    );
   },
 });
 
 const updateDeal = defineTool({
   name: "update_deal",
   title: "Update deal",
-  description: `${WRITE_NOTE} Changes a deal's stage, title, source or owner. Moving to "lost" requires lost_reason. Only the fields you pass change.`,
+  description: `${WRITE_NOTE} Changes a deal's stage, title, source or owner. Moving to "lost" requires lost_reason; moving to any other stage clears it; lost_reason alone can only be changed on a deal that is already lost. Only the fields you pass change.`,
   inputSchema: z.object({
     deal_id: uuid("deal_id"),
     stage: z.enum(DEAL_STAGES).optional(),
@@ -686,12 +791,20 @@ const updateDeal = defineTool({
     if (input.stage !== undefined) raw.stage = input.stage;
     if (input.title !== undefined) raw.title = input.title;
     if (input.source !== undefined) raw.source = input.source;
-    if (input.lost_reason !== undefined) raw.lost_reason = input.lost_reason;
-    if (input.owner !== undefined) raw.owner_id = await resolvePerson(ctx, input.owner, {});
-    if (!Object.keys(raw).length) throw new ToolError("Nothing to change. Pass at least one of stage, title, source, owner, lost_reason.");
-    if (raw.stage === "lost" && !input.lost_reason?.trim()) {
-      throw new ToolError("A lost deal needs a reason. Ask the user why it was lost and pass it as lost_reason.");
+    if (input.owner !== undefined) raw.owner_id = (await resolvePerson(ctx, input.owner, {})).id;
+    if (!Object.keys(raw).length && input.lost_reason === undefined) {
+      throw new ToolError("Nothing to change. Pass at least one of stage, title, source, owner, lost_reason.");
     }
+    // A reason alone is only valid on a deal that is already lost -- look its stage up then.
+    let currentStage: (typeof DEAL_STAGES)[number] | null = null;
+    if (input.stage === undefined && input.lost_reason !== undefined) {
+      const { data: cur, error: curError } = await ctx.supabase.from("deals").select("stage").eq("id", input.deal_id).maybeSingle();
+      check(curError, "the deal");
+      if (!cur) notFound("Deal");
+      currentStage = cur.stage;
+    }
+    const lostReason = lostReasonFor(input.stage, input.lost_reason, currentStage);
+    if (lostReason !== undefined) raw.lost_reason = lostReason;
     const parsed = parseWith(dealUpdateSchema, raw);
     // Only the keys actually sent -- the schema turns an absent lost_reason into null.
     const payload = pickProvided(parsed, raw);
@@ -707,6 +820,7 @@ const updateDeal = defineTool({
     }
     if (!data) notFound("Deal");
     await ctx.audit({ action: "deal.updated", resourceType: "deal", resourceId: input.deal_id, metadata: { client_id: data.client_id } });
+    revalidate(data.client_id);
     return toText({
       result: "Deal updated",
       deal_id: input.deal_id,
@@ -738,6 +852,10 @@ const saveOffer = defineTool({
     await requireSales(ctx, "manage_sales");
     const { deal_id, offer_id, ...fields } = input;
     let base: Record<string, unknown> = { status: "draft" };
+    if (!offer_id) {
+      if (fields.title === undefined) throw new ToolError("Title is required for a new offer.");
+      if (fields.amount === undefined) throw new ToolError("Amount is required for a new offer.");
+    }
     if (offer_id) {
       const { data: cur, error } = await ctx.supabase
         .from("offers")
@@ -764,6 +882,7 @@ const saveOffer = defineTool({
     }
     const { data: deal } = await ctx.supabase.from("deals").select("client_id").eq("id", data.deal_id).maybeSingle();
     await ctx.audit({ action: "offer.saved", resourceType: "offer", resourceId: data.id, metadata: { deal_id: data.deal_id } });
+    revalidate(deal?.client_id);
     return toText(
       compact({
         result: offer_id ? "Offer updated" : "Offer added",

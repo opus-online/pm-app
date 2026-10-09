@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/require-permission";
 import { writeAudit } from "@/lib/audit";
 import { assertStepRefsBelongToClient, existingByRegCode } from "@/lib/sales/ownership";
 import { prepareLeadInput } from "@/lib/sales/lead-input";
+import { revalidateSales } from "@/lib/sales/revalidate";
 import {
   mapConvertEntryError,
   mapCreateLeadError,
@@ -52,10 +53,6 @@ type DuplicateError = { error: string; existingClientId?: string; existingClient
 
 const isUuid = (v: unknown) => z.uuid().safeParse(v).success;
 
-function revalidateSales(clientId?: string) {
-  revalidatePath("/sales");
-  if (clientId) revalidatePath(`/sales/companies/${clientId}`);
-}
 
 export async function findCompanyByRegCodeAction(regCode: string): Promise<{ id: string; name: string } | null> {
   await requirePermission("view_sales");
