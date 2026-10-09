@@ -83,6 +83,7 @@ dataset (fake clients, projects and `@pmcms.local` logins).
    | `NEXT_PUBLIC_SUPABASE_URL` | `https://<project-ref>.supabase.co` |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | legacy `anon` key |
    | `SUPABASE_SERVICE_ROLE_KEY` | legacy `service_role` key |
+   | `SUPABASE_JWT_SECRET` | Supabase dashboard → **Project Settings → JWT Keys** → legacy JWT secret. Server-only — never prefix it `NEXT_PUBLIC_`. |
    | `NEXT_PUBLIC_SITE_URL` | your production URL (set after first deploy if you don't know it yet, then redeploy) |
 
 3. Deploy. Your URL appears on the project page (e.g.

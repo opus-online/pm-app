@@ -31,10 +31,16 @@ const statusText = z.string().trim().max(4000).optional();
 // ---------------------------------------------------------------------------------------------
 // Helpers
 
-/** Throws a friendly ToolError for a failed read; the raw message only goes to the server log. */
-function check(error: { message: string } | null, what: string): void {
+/** Throws a friendly ToolError for a failed read; the raw message only goes to the server log.
+ * PGRST301 ("JWT invalid/expired") means the user-scoped client's minted token was rejected by
+ * PostgREST -- not a transient DB error, so it gets its own actionable message instead of the
+ * generic "try again". */
+function check(error: { message: string; code?: string } | null, what: string): void {
   if (error) {
     console.error(`mcp projects ${what} failed:`, error.message);
+    if (error.code === "PGRST301") {
+      throw new ToolError("Server misconfiguration (token rejected) — contact an admin.");
+    }
     throw new ToolError(`Could not load ${what}. Try again.`);
   }
 }

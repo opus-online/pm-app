@@ -23,7 +23,6 @@ export async function McpKeysSection() {
     <section className="space-y-3 pt-6">
       <div>
         <h2 className="text-lg font-semibold">AI keys</h2>
-        <p className="text-sm text-muted-foreground">Access keys people have created for the AI assistant.</p>
       </div>
       {error ? (
         <p className="text-sm text-destructive">Failed to load keys.</p>

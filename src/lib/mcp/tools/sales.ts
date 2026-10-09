@@ -62,10 +62,16 @@ export const WRITE_NOTE = "CHANGES DATA -- confirm with the user first.";
 // ---------------------------------------------------------------------------------------------
 // Helpers
 
-/** Throws a friendly ToolError for a failed read; the raw message only goes to the server log. */
-function check(error: { message: string } | null, what: string): void {
+/** Throws a friendly ToolError for a failed read; the raw message only goes to the server log.
+ * PGRST301 ("JWT invalid/expired") means the user-scoped client's minted token was rejected by
+ * PostgREST -- not a transient DB error, so it gets its own actionable message instead of the
+ * generic "try again". */
+function check(error: { message: string; code?: string } | null, what: string): void {
   if (error) {
     console.error(`mcp sales ${what} failed:`, error.message);
+    if (error.code === "PGRST301") {
+      throw new ToolError("Server misconfiguration (token rejected) — contact an admin.");
+    }
     throw new ToolError(`Could not load ${what}. Try again.`);
   }
 }
@@ -617,13 +623,14 @@ const updateStep = defineTool({
       p_deal: p.deal_id as never,
     });
     if (error) throw new ToolError(mapRound3RpcError(error, "This step is already done or was removed."));
-    await ctx.audit({ action: "company.saved", resourceType: "crm_activity", resourceId: activity_id, metadata: { client_id: cur.client_id, status: "planned" } });
+    const changed = Object.keys(input).filter((k) => k !== "activity_id" && input[k as keyof typeof input] !== undefined);
+    await ctx.audit({ action: "company.saved", resourceType: "crm_activity", resourceId: activity_id, metadata: { client_id: cur.client_id, status: "planned", changed } });
     revalidate(cur.client_id);
     return toText(
       compact({
         result: "Next step updated",
         activity_id,
-        changed: Object.keys(input).filter((k) => k !== "activity_id" && input[k as keyof typeof input] !== undefined),
+        changed,
         due: fmtDate(p.due_on),
         assignee: newAssignee ? newAssignee.name : await personName(ctx, p.assignee_id, cache),
         assignee_id: p.assignee_id,
@@ -819,7 +826,7 @@ const updateDeal = defineTool({
       throw new ToolError(mapDealUpdateError(error));
     }
     if (!data) notFound("Deal");
-    await ctx.audit({ action: "deal.updated", resourceType: "deal", resourceId: input.deal_id, metadata: { client_id: data.client_id } });
+    await ctx.audit({ action: "deal.updated", resourceType: "deal", resourceId: input.deal_id, metadata: { client_id: data.client_id, changed: Object.keys(raw) } });
     revalidate(data.client_id);
     return toText({
       result: "Deal updated",

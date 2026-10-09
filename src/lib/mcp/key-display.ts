@@ -69,13 +69,19 @@ export function claudeCodeCommand(origin: string, key: string): string {
   return `claude mcp add -s user --transport http pm-cms ${mcpEndpoint(origin)} --header "Authorization: Bearer ${key}"`;
 }
 
+/** Claude Desktop (mcp-remote) config. The header value is passed via an `env` var rather than
+ * inlined in `args` -- on Windows, mcp-remote (and the shell that spawns `npx`) splits an
+ * `args` string containing a literal space into two argv entries, breaking "Bearer <key>". An
+ * env-var reference (`${AUTH_HEADER}`) is expanded by mcp-remote itself and is space-safe on
+ * every platform. */
 export function claudeDesktopConfig(origin: string, key: string): string {
   return JSON.stringify(
     {
       mcpServers: {
         "pm-cms": {
           command: "npx",
-          args: ["-y", "mcp-remote", mcpEndpoint(origin), "--header", `Authorization: Bearer ${key}`],
+          args: ["-y", "mcp-remote", mcpEndpoint(origin), "--header", "Authorization:${AUTH_HEADER}"],
+          env: { AUTH_HEADER: `Bearer ${key}` },
         },
       },
     },

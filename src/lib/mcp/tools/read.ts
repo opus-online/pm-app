@@ -18,10 +18,16 @@ const uuid = (what: string) => z.uuid({ message: `${what} must be an id (uuid) -
 const text = (max = 100) => z.string().trim().min(1).max(max);
 const dateKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 
-/** Throws a friendly ToolError for a DB error; the raw message only goes to the server log. */
-function check(error: { message: string } | null, what: string): void {
+/** Throws a friendly ToolError for a DB error; the raw message only goes to the server log.
+ * PGRST301 ("JWT invalid/expired") means the user-scoped client's minted token was rejected by
+ * PostgREST -- not a transient DB error, so it gets its own actionable message instead of the
+ * generic "try again". */
+function check(error: { message: string; code?: string } | null, what: string): void {
   if (error) {
     console.error(`mcp read ${what} failed:`, error.message);
+    if (error.code === "PGRST301") {
+      throw new ToolError("Server misconfiguration (token rejected) — contact an admin.");
+    }
     throw new ToolError(`Could not load ${what}. Try again.`);
   }
 }

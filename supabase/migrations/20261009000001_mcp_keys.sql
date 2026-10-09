@@ -5,7 +5,7 @@
 create table public.mcp_keys (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.user_profiles (id) on delete cascade,
-  label text not null,
+  label text not null check (char_length(label) between 1 and 100),
   key_hash text not null unique,
   key_prefix text not null,
   created_at timestamptz not null default now(),
@@ -86,7 +86,14 @@ create trigger mcp_keys_guard_revocation
 
 alter table public.mcp_key_usage enable row level security;
 
-grant select on public.mcp_keys to authenticated;
+-- Start from zero for both client roles, then grant back exactly the table-level privilege
+-- (insert/update) and column-level SELECT the app needs. key_hash never reaches `authenticated`
+-- -- the only reader of it is mcp_resolve_key below, which is SECURITY DEFINER (runs as the
+-- function owner, not the caller's role) and so needs no grant at all to read it.
+revoke all on public.mcp_keys, public.mcp_key_usage from anon, authenticated;
+
+grant select (id, user_id, label, key_prefix, created_at, expires_at, last_used_at, revoked_at, revoked_by)
+  on public.mcp_keys to authenticated;
 grant insert (user_id, label, key_hash, key_prefix, expires_at) on public.mcp_keys to authenticated;
 grant update (revoked_at, revoked_by, label) on public.mcp_keys to authenticated;
 grant select, insert, update, delete on public.mcp_keys, public.mcp_key_usage to service_role;

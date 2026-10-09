@@ -34,6 +34,29 @@ function permissionCtx(allowed: boolean) {
   return { ctx: { supabase, userId: ME, keyId: KEY, audit } as never, rpc, audit };
 }
 
+describe("check(): PGRST301 (rejected JWT) gets its own message", () => {
+  it("update_deal maps a PGRST301 read error to the server-misconfiguration message", async () => {
+    const audit = vi.fn();
+    const rpc = vi.fn(async (fn: string) => {
+      if (fn !== "has_permission") throw new Error(`unexpected rpc ${fn}`);
+      return { data: true, error: null };
+    });
+    const from = (table: string) => {
+      if (table !== "deals") throw new Error(`unexpected table ${table}`);
+      const b = {
+        select: () => b,
+        eq: () => b,
+        maybeSingle: () => Promise.resolve({ data: null, error: { code: "PGRST301", message: "JWT expired" } }),
+      };
+      return b;
+    };
+    const ctx = { supabase: { rpc, from }, userId: ME, keyId: KEY, audit } as never;
+    await expect(
+      tool("update_deal").run({ deal_id: ID, lost_reason: "Budget" }, ctx)
+    ).rejects.toThrow("Server misconfiguration (token rejected) — contact an admin.");
+  });
+});
+
 describe("sales tool definitions", () => {
   it("write tools say they change data and are not read-only", () => {
     for (const t of SALES_WRITE_TOOLS) {

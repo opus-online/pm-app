@@ -203,6 +203,20 @@ function projectDb(opts: { milestones?: unknown[]; milestoneUpdate?: Answer; pro
   });
 }
 
+describe("check(): PGRST301 (rejected JWT) gets its own message", () => {
+  it("update_project maps a PGRST301 read error to the server-misconfiguration message", async () => {
+    const { ctx } = dbCtx((c) => {
+      if (c.table === "projects" && c.op === "select") {
+        return { data: null, error: { code: "PGRST301", message: "JWT expired" } };
+      }
+      throw new Error(`unexpected ${c.op} on ${c.table}`);
+    });
+    await expect(tool("update_project").run({ project_id: ID, name: "X" }, ctx)).rejects.toThrow(
+      "Server misconfiguration (token rejected) — contact an admin."
+    );
+  });
+});
+
 describe("update_project write order and milestone-backed dates", () => {
   it("moves the end milestone first and leaves the synced deadline out of the project update", async () => {
     const { ctx, calls, audit } = projectDb({ milestones: [END_MS] });

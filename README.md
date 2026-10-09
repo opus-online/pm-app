@@ -40,6 +40,11 @@ NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<from `npx supabase status`>
 SUPABASE_SERVICE_ROLE_KEY=<from `npx supabase status`>
 
+# JWT secret used to mint short-lived user-scoped tokens for MCP (the AI assistant). Local: from
+# `npx supabase status -o env` (JWT_SECRET). Production: Supabase dashboard -> Project Settings ->
+# JWT Keys -> legacy JWT secret. Server-only -- never prefix it NEXT_PUBLIC_.
+SUPABASE_JWT_SECRET=<from `npx supabase status -o env`>
+
 # Leave the Azure values empty to keep Microsoft sign-in disabled locally —
 # see "Microsoft Entra ID setup" below to enable it.
 SUPABASE_AUTH_AZURE_CLIENT_ID=

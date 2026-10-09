@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(43);
+select plan(49);
 
 -- Phase 15: AI assistant MCP -- access keys, usage counter, service-role resolver.
 -- Spec: docs/superpowers/specs/2026-10-09-ai-assistant-mcp-design.md (Data model)
@@ -67,6 +67,16 @@ select throws_ok(
   $$ insert into public.mcp_keys (user_id, label, key_hash, key_prefix, expires_at)
      values ('fe000000-0000-4000-8000-000000000001','Already expired','hash-alreadyexpired','pm_alex', now() - interval '1 day') $$,
   '42501', null, 'insert with expires_at <= now() is rejected');
+
+-- insert hygiene: label length is bounded (1..100 chars)
+select throws_ok(
+  $$ insert into public.mcp_keys (user_id, label, key_hash, key_prefix, expires_at)
+     values ('fe000000-0000-4000-8000-000000000001','','hash-emptylabel','pm_empt', now() + interval '30 days') $$,
+  '23514', null, 'insert with an empty label is rejected');
+select throws_ok(
+  $$ insert into public.mcp_keys (user_id, label, key_hash, key_prefix, expires_at)
+     values ('fe000000-0000-4000-8000-000000000001', repeat('x', 101),'hash-longlabel','pm_long', now() + interval '30 days') $$,
+  '23514', null, 'insert with a label over 100 chars is rejected');
 
 -- u2 can insert their own key too (same client-shaped insert)
 set local "request.jwt.claims" to '{"sub":"fe000000-0000-4000-8000-000000000002","role":"authenticated"}';
@@ -146,6 +156,18 @@ select throws_ok(
   $$ update public.mcp_keys set key_hash = 'hacked' where id = 'fe100000-0000-4000-8000-000000000002' $$,
   '42501', null, 'authenticated cannot update mcp_keys.key_hash (column grant)');
 reset role;
+
+-- column privileges, checked directly (not just by an attempted write): `authenticated` never
+-- gets key_hash in SELECT, and expires_at/user_id/key_hash are never UPDATE-able -- only
+-- revoked_at/revoked_by/label are.
+select is(has_column_privilege('authenticated', 'public.mcp_keys', 'key_hash', 'SELECT'),
+  false, 'authenticated cannot select mcp_keys.key_hash');
+select is(has_column_privilege('authenticated', 'public.mcp_keys', 'expires_at', 'UPDATE'),
+  false, 'authenticated cannot update mcp_keys.expires_at (column grant)');
+select is(has_column_privilege('authenticated', 'public.mcp_keys', 'user_id', 'UPDATE'),
+  false, 'authenticated cannot update mcp_keys.user_id (column grant)');
+select is(has_column_privilege('authenticated', 'public.mcp_keys', 'key_hash', 'UPDATE'),
+  false, 'authenticated cannot update mcp_keys.key_hash (column grant, privilege check)');
 
 -- 9/10. authenticated cannot execute mcp_resolve_key / mcp_bump_usage (service-role only)
 select is(has_function_privilege('authenticated', 'public.mcp_resolve_key(text)', 'EXECUTE'),

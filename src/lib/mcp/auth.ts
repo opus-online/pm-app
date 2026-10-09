@@ -32,8 +32,11 @@ export function jsonError(status: number, error: string, message: string, header
   });
 }
 
+/** 401 JSON only -- no `WWW-Authenticate` header. This endpoint isn't part of an HTTP Basic/Bearer
+ * challenge-response flow or OAuth discovery (there's no such flow here, just a static API key),
+ * so the header would be misleading overhead rather than a spec requirement. */
 export function unauthorized(message: string): Response {
-  return jsonError(401, "unauthorized", message, { "www-authenticate": 'Bearer realm="pm-cms"' });
+  return jsonError(401, "unauthorized", message);
 }
 
 /**
@@ -56,7 +59,7 @@ export async function authenticateRequest(req: Request, resolve: KeyResolver): P
   }
 
   if (!resolved) {
-    return unauthorized("Invalid, expired or revoked access key.");
+    return unauthorized("Invalid or revoked key — create a new one in Settings → AI assistant.");
   }
   return resolved;
 }

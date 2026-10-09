@@ -62,12 +62,13 @@ describe("connect snippets", () => {
       'claude mcp add -s user --transport http pm-cms https://pm.example.com/api/mcp --header "Authorization: Bearer pmk_x"',
     );
   });
-  it("builds the Claude Desktop mcp-remote config", () => {
+  it("builds the Claude Desktop mcp-remote config (Windows-safe: no space in args, key via env)", () => {
     expect(JSON.parse(claudeDesktopConfig("http://localhost:3000", "pmk_x"))).toEqual({
       mcpServers: {
         "pm-cms": {
           command: "npx",
-          args: ["-y", "mcp-remote", "http://localhost:3000/api/mcp", "--header", "Authorization: Bearer pmk_x"],
+          args: ["-y", "mcp-remote", "http://localhost:3000/api/mcp", "--header", "Authorization:${AUTH_HEADER}"],
+          env: { AUTH_HEADER: "Bearer pmk_x" },
         },
       },
     });
