@@ -37,6 +37,8 @@ create policy "insert own mcp_keys" on public.mcp_keys for insert
   with check (
     user_id = auth.uid()
     and revoked_at is null
+    and revoked_by is null
+    and last_used_at is null
     and expires_at > now()
     and expires_at <= now() + interval '366 days'
   );
@@ -49,9 +51,40 @@ create policy "update own mcp_keys" on public.mcp_keys for update
 
 -- no delete policy: keys are retired via revoke, never removed.
 
+-- Revocation is permanent and server-stamped: once revoked_at is set, no update (owner or
+-- admin -- RLS's USING/WITH CHECK above allows both to reach this row) may clear it or
+-- reattribute who revoked it; and revoked_at/revoked_by can only move together, on the one
+-- transition from null -> set, with server-controlled values (never a client-supplied
+-- revoked_at/revoked_by, however the column grant below would otherwise allow it).
+create or replace function public.mcp_keys_guard_revocation()
+returns trigger
+language plpgsql
+as $$
+begin
+  if old.revoked_at is not null then
+    if new.revoked_at is distinct from old.revoked_at or new.revoked_by is distinct from old.revoked_by then
+      raise exception 'A revoked key cannot be un-revoked or reattributed' using errcode = '42501';
+    end if;
+  elsif new.revoked_at is not null then
+    new.revoked_at := now();
+    new.revoked_by := auth.uid();
+  else
+    if new.revoked_by is distinct from old.revoked_by then
+      raise exception 'revoked_by can only be set together with revoked_at' using errcode = '42501';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger mcp_keys_guard_revocation
+  before update on public.mcp_keys
+  for each row execute function public.mcp_keys_guard_revocation();
+
 alter table public.mcp_key_usage enable row level security;
 
-grant select, insert on public.mcp_keys to authenticated;
+grant select on public.mcp_keys to authenticated;
+grant insert (user_id, label, key_hash, key_prefix, expires_at) on public.mcp_keys to authenticated;
 grant update (revoked_at, revoked_by, label) on public.mcp_keys to authenticated;
 grant select, insert, update, delete on public.mcp_keys, public.mcp_key_usage to service_role;
 
