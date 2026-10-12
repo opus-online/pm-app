@@ -33,7 +33,7 @@ export default async function SettingsPage() {
       : Promise.resolve({ data: [] as ManagedOption[] }),
     supabase
       .from("mcp_keys")
-      .select("id, label, key_prefix, created_at, expires_at, last_used_at, revoked_at")
+      .select("id, label, key_prefix, created_at, expires_at, last_used_at, revoked_at, can_write")
       .eq("user_id", current.user.id),
   ]);
   const sessionCount = sessions?.length ?? 0;

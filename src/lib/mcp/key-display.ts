@@ -13,6 +13,7 @@ export type McpKeyRow = {
   expiresAt: string;
   lastUsedAt: string | null;
   status: McpKeyStatus;
+  canWrite: boolean;
   /** Owner -- present only on the admin list. */
   owner?: { name: string; email: string };
 };
@@ -25,6 +26,7 @@ type DbKey = {
   expires_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  can_write: boolean;
 };
 
 export function mcpKeyStatus(
@@ -53,6 +55,7 @@ export function toMcpKeyRows<T extends DbKey>(
       expiresAt: k.expires_at,
       lastUsedAt: k.last_used_at,
       status: mcpKeyStatus(k, now),
+      canWrite: k.can_write,
       ...(owner ? { owner: owner(k) } : {}),
     }))
     .sort(

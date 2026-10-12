@@ -11,7 +11,7 @@ Let each user connect their own AI assistant (Claude Code, Claude Desktop) to th
 |---|---|
 | Who creates keys | Each active user, self-service, in **Settings → AI assistant**. Admins see and can revoke all keys on **User access**. |
 | Key format & storage | `pmk_` + 32 random bytes base64url. Only `sha256(key)` and a 10-char display prefix are stored. Shown once on creation. |
-| Expiry | Chosen at creation: 30 / 90 (default) / 365 days. Expired or revoked keys get HTTP 401. |
+| Expiry | Chosen at creation: 30 / 90 (default) days (max 90 since the 2026-10-12 hardening). Expired or revoked keys get HTTP 401. |
 | Identity | Server verifies the key, then mints a **5-minute Supabase JWT** for the key's user (HS256 with the project JWT secret, `role: authenticated`, `sub: user_id`) and uses a user-scoped Supabase client. All existing RLS, `has_permission` and RPC checks apply unchanged. A disabled/pending user's key is refused. |
 | Transport | Streamable HTTP MCP endpoint at `POST /api/mcp` (Next.js route handler, `mcp-handler` + `@modelcontextprotocol` SDK, versions verified at build time). |
 | Scope (option C) | Read everything the user can read; write Sales and project-work data. **No delete tools, no credential tools, no user/role/access/delegation tools, no settings.** |
@@ -29,7 +29,7 @@ Let each user connect their own AI assistant (Claude Code, Claude Desktop) to th
 ## Tools (all run as the key's user)
 **Read:** `whoami`, `search` (projects/clients/people), `list_projects` (filters: status, PM), `get_project` (parts, team, milestones, recent status updates, budget summary if allowed), `list_clients`, `get_client`, `list_people`, `get_person` (current allocation, time off), `get_workload` (week range), `list_time_entries` (person/project/month), `get_budget` (project; finance columns only when RLS returns them), `sales_overview` (companies with next step, filters as in the list), `get_company` (contacts, deals with offers, next steps, last 50 history entries), `my_next_steps`.
 **Write (Sales):** `log_activity`, `plan_step`, `complete_step`, `update_step`, `cancel_step`, `move_entry_to_steps`, `create_lead`, `update_deal` (stage/title/source/owner; Lost requires reason), `save_offer` (create/update).
-**Write (Projects):** `post_status_update`, `update_project` (allowlisted fields: name, description, status, start_date, deadline, tags (icon tag preserved)), `log_time` (monthly entry), `add_budget_item` / `update_budget_item` (only where the user has budget rights; RLS decides).
+**Write (Projects):** `post_status_update`, `update_project` (allowlisted fields: name, description, status, start_date, deadline, tags (icon tag preserved)), `log_time` (monthly entry). Budget writes (`add_budget_item` / `update_budget_item`) were REMOVED in the 2026-10-12 hardening -- financial entries stay a human action in the app.
 Every write tool: zod-validated input reusing the app's existing schemas; maps DB errors to friendly text; returns what changed plus the app URL of the affected page.
 
 ## Server instructions (summary)
@@ -46,3 +46,10 @@ Act only on what the user asked; before any change, state exactly what will chan
 
 ## Out of scope
 OAuth login flow for MCP clients, per-key tool scopes, in-app chat UI, prompts/resources beyond tools + instructions.
+
+## Hardening (2026-10-12)
+
+- Per-key access chosen at creation: **Read only** (default) or **Read and write** (`mcp_keys.can_write`, no UPDATE grant -- fixed for the key's life). Read-only keys are only shown the read tools; `runTool` refuses write tools for them as a second layer; server instructions tell the model the key is read-only.
+- Max expiry 90 days (RLS: `expires_at <= now() + 91 days`).
+- Every write tool carries `destructiveHint: true` so MCP clients ask the user before running it.
+- No budget write tools.

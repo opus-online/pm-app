@@ -11,7 +11,7 @@ export async function McpKeysSection() {
   const { data, error } = await supabase
     .from("mcp_keys")
     .select(
-      "id, label, key_prefix, created_at, expires_at, last_used_at, revoked_at, owner:user_profiles!mcp_keys_user_id_fkey(full_name, email)",
+      "id, label, key_prefix, created_at, expires_at, last_used_at, revoked_at, can_write, owner:user_profiles!mcp_keys_user_id_fkey(full_name, email)",
     );
 
   const keys = toMcpKeyRows(data ?? [], (k) => ({

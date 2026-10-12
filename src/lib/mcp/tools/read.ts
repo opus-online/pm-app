@@ -61,7 +61,7 @@ async function namesById(
 const whoami = defineTool({
   name: "whoami",
   title: "Who am I",
-  description: "Shows which user this connection acts as: name, email, roles, linked person record, key expiry and main capabilities.",
+  description: "Shows which user this connection acts as: name, email, roles, linked person record, the key's access (read only / read and write) and expiry, and main capabilities.",
   inputSchema: z.object({}),
   readOnly: true,
   handler: async (_input, ctx) => {
@@ -87,7 +87,12 @@ const whoami = defineTool({
           ? compact({ id: personRes.data.id, name: personRes.data.full_name, role: personRes.data.role_title, url: appUrl(`/people/${personRes.data.id}`) })
           : null,
         key: keyRes.data
-          ? { label: keyRes.data.label, prefix: keyRes.data.key_prefix, expires: fmtDate(keyRes.data.expires_at) }
+          ? {
+              label: keyRes.data.label,
+              prefix: keyRes.data.key_prefix,
+              access: ctx.canWrite ? "read and write" : "read only",
+              expires: fmtDate(keyRes.data.expires_at),
+            }
           : null,
         capabilities,
         today: fmtDate(appDayKey(new Date())),

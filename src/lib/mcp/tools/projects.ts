@@ -1,20 +1,18 @@
-// Project MCP write tools: post_status_update, update_project, log_time, add_budget_item,
-// update_budget_item. Every query and write goes through ctx.supabase -- the USER-SCOPED client --
+// Project MCP write tools: post_status_update, update_project, log_time. Budget writes are
+// deliberately NOT exposed -- financial entries stay a human action in the app. Every query and write goes through ctx.supabase -- the USER-SCOPED client --
 // so RLS decides rights exactly as in the app (PM on own projects, finance on budgets, own time
-// only). Writes mirror the app's actions (src/app/actions/{projects,time-entries,budget-items}.ts):
+// only). Writes mirror the app's actions (src/app/actions/{projects,time-entries}.ts):
 // the same zod schemas (src/lib/validation/*), the same has_permission pre-checks the actions run
 // via requirePermission (here only to turn a refusal into a clear message -- RLS re-checks every
 // write), the same table writes and revalidated pages. Each write is audited through ctx.audit
 // (via=mcp, key_id added by the server).
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { ensureProjectBudgetId } from "@/lib/budget-row";
 import { appUrl, compact, fmtDate, toText } from "@/lib/mcp/format";
 import { WRITE_NOTE, parseWith } from "@/lib/mcp/tools/sales";
 import { defineTool, ToolError, type ToolContext, type ToolDef } from "@/lib/mcp/types";
 import { replaceVisibleTags, visibleProjectTags } from "@/lib/project-icons";
 import { pickProvided } from "@/lib/sales/pick-provided";
-import { BUDGET_ITEM_TYPE_OPTIONS, COST_BUDGET_ITEM_TYPES, budgetItemSchema } from "@/lib/validation/budget";
 import { PROJECT_STATUS_OPTIONS, editProjectSchema, statusUpdateSchema } from "@/lib/validation/project";
 import { timeEntrySchema } from "@/lib/validation/time-entry";
 import type { Permission } from "@/lib/auth/permissions";
@@ -52,8 +50,6 @@ function notFound(what: string): never {
 export const NO_EDIT_PROJECT = "You can't edit this project. Only its project manager or an admin can change it.";
 export const NO_EDIT_STATUS = "You can't post status updates on this project. Only its project manager or an admin can.";
 export const NO_LOG_TIME = "You don't have permission to log time.";
-export const NO_MANAGE_BUDGET = "You don't have permission to change this project's budget.";
-export const NO_INTERNAL_COST = "Only finance can record or change internal costs (planned_cost / actual_cost).";
 
 /** has_permission through the user-scoped client, as the app's requirePermission does. */
 async function requirePerm(ctx: ToolContext, perm: Permission, projectId: string | null, message: string): Promise<void> {
@@ -367,101 +363,4 @@ const logTime = defineTool({
   },
 });
 
-const isCostType = (t: string) => (COST_BUDGET_ITEM_TYPES as readonly string[]).includes(t);
-
-const addBudgetItem = defineTool({
-  name: "add_budget_item",
-  title: "Add budget item",
-  description: `${WRITE_NOTE} Adds an entry to a project's budget: invoice, payment or change (scope change; amount may be negative), or -- finance only -- planned_cost / actual_cost. Amount in EUR. Needs budget rights on the project.`,
-  inputSchema: z.object({
-    project_id: uuid("project_id"),
-    item_type: z.enum(BUDGET_ITEM_TYPE_OPTIONS),
-    name: z.string().trim().min(1).max(200),
-    amount: z.number().describe("EUR; negative allowed (e.g. a scope reduction)"),
-    occurred_on: dateKey.describe("YYYY-MM-DD"),
-    note: z.string().max(2000).optional(),
-  }),
-  readOnly: false,
-  handler: async ({ project_id, ...input }, ctx) => {
-    await requirePerm(ctx, "manage_budget", project_id, NO_MANAGE_BUDGET);
-    const item = parseWith(budgetItemSchema, { ...input, note: input.note ?? null });
-    if (isCostType(item.item_type)) await requirePerm(ctx, "view_internal_cost", project_id, NO_INTERNAL_COST);
-
-    const budget = await ensureProjectBudgetId(ctx.supabase, project_id);
-    if ("error" in budget) throw new ToolError(`${budget.error} Try again.`);
-    const { data, error } = await ctx.supabase
-      .from("budget_items")
-      .insert({ budget_id: budget.id, created_by: ctx.userId, ...item })
-      .select("id")
-      .single();
-    if (error || !data) {
-      if (error) console.error("mcp add_budget_item failed:", error.code, error.message);
-      throw new ToolError(error?.code === "42501" ? NO_MANAGE_BUDGET : "Save failed. Try again.");
-    }
-    await ctx.audit({
-      action: "budget_item.added",
-      resourceType: "budget_item",
-      resourceId: String(data.id),
-      metadata: { project_id, budget_id: budget.id, item_type: item.item_type, amount: item.amount },
-    });
-    revalidate([`/projects/${project_id}/budget`]);
-    return toText({
-      result: "Budget item added",
-      item_id: data.id,
-      item_type: item.item_type,
-      amount_eur: item.amount,
-      date: fmtDate(item.occurred_on),
-      url: projectUrl(project_id, "budget"),
-    });
-  },
-});
-
-const budgetItemFieldsSchema = budgetItemSchema.pick({ name: true, amount: true, occurred_on: true, note: true }).partial();
-
-const updateBudgetItem = defineTool({
-  name: "update_budget_item",
-  title: "Update budget item",
-  description: `${WRITE_NOTE} Changes a budget entry's name, amount (EUR), date or note. Only the fields you pass change. The type (invoice/payment/...) can't be changed. Needs budget rights on the project; cost entries are finance only. Find item ids with get_budget.`,
-  inputSchema: z
-    .object({
-      item_id: z.number().int().positive().describe("Budget item id"),
-      name: z.string().trim().min(1).max(200).optional(),
-      amount: z.number().optional().describe("EUR"),
-      occurred_on: dateKey.optional().describe("YYYY-MM-DD"),
-      note: z.string().max(2000).nullable().optional().describe("null clears it"),
-    })
-    .strict(),
-  readOnly: false,
-  handler: async ({ item_id, ...input }, ctx) => {
-    const raw = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined));
-    if (!Object.keys(raw).length) throw new ToolError("Pass at least one field to change: name, amount, occurred_on, note.");
-    const patch = pickProvided(parseWith(budgetItemFieldsSchema, raw), raw);
-
-    const { data: item, error: itemError } = await ctx.supabase
-      .from("budget_items")
-      .select("id, item_type, budget_id, budgets(project_id)")
-      .eq("id", item_id)
-      .maybeSingle();
-    check(itemError, "the budget item");
-    const projectId = item?.budgets?.project_id;
-    if (!item || !projectId) notFound("Budget item");
-    await requirePerm(ctx, "manage_budget", projectId, NO_MANAGE_BUDGET);
-    if (isCostType(item.item_type)) await requirePerm(ctx, "view_internal_cost", projectId, NO_INTERNAL_COST);
-
-    const { data, error } = await ctx.supabase.from("budget_items").update(patch).eq("id", item_id).select("id").maybeSingle();
-    if (error || !data) {
-      if (error) console.error("mcp update_budget_item failed:", error.code, error.message);
-      throw new ToolError(!error || error.code === "42501" ? NO_MANAGE_BUDGET : "Update failed. Try again.");
-    }
-    await ctx.audit({
-      action: "budget_item.updated",
-      resourceType: "budget_item",
-      resourceId: String(item_id),
-      metadata: { project_id: projectId, item_type: item.item_type, fields: patch },
-    });
-    revalidate([`/projects/${projectId}/budget`]);
-    return toText({ result: "Budget item updated", item_id, changed: Object.keys(patch).join(", "), url: projectUrl(projectId, "budget") });
-  },
-});
-
-export const PROJECT_WRITE_TOOLS: ToolDef[] = [postStatusUpdate, updateProject, logTime, addBudgetItem, updateBudgetItem];
+export const PROJECT_WRITE_TOOLS: ToolDef[] = [postStatusUpdate, updateProject, logTime];

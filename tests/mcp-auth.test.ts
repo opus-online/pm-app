@@ -3,7 +3,7 @@ import { authenticateRequest, enforceRequestCeiling, extractBearerKey } from "@/
 import { generateKey, hashKey } from "@/lib/mcp/keys";
 import { RATE_LIMIT_PER_MINUTE, REQUEST_CEILING_PER_MINUTE, isOverRequestCeiling, isRateLimited } from "@/lib/mcp/rate-limit";
 
-const ids = { userId: "11111111-1111-4111-8111-111111111111", keyId: "22222222-2222-4222-8222-222222222222" };
+const ids = { userId: "11111111-1111-4111-8111-111111111111", keyId: "22222222-2222-4222-8222-222222222222", canWrite: true };
 
 function req(authorization?: string) {
   const headers = new Headers({ "content-type": "application/json" });
@@ -134,6 +134,41 @@ describe("runTool rate limiting", async () => {
     spy.mockRestore();
     expect(raw.isError).toBe(true);
     expect(raw.content[0].text).not.toMatch(/relation|rls/);
+  });
+});
+
+describe("read-only keys", async () => {
+  const { runTool, READ_ONLY_KEY_MESSAGE } = await import("@/lib/mcp/run-tool");
+  const { TOOLS, toolsForKey } = await import("@/lib/mcp/registry");
+  const { mcpInstructions } = await import("@/lib/mcp/instructions");
+  const readOnlyCtx = { supabase: {} as never, audit: async () => {}, ...ids, canWrite: false };
+
+  it("get only the read tools; write keys get every tool", () => {
+    const visible = toolsForKey(false);
+    expect(visible.length).toBeGreaterThan(0);
+    expect(visible.every((t) => t.readOnly)).toBe(true);
+    expect(visible).toEqual(TOOLS.filter((t) => t.readOnly));
+    expect(toolsForKey(true)).toEqual(TOOLS);
+  });
+
+  it("can't run a write tool even if one is reached (not counted, never invoked)", async () => {
+    const tool = { name: "w", title: "w", description: "write tool", readOnly: false, inputSchema: {} as never, run: vi.fn() };
+    const bump = vi.fn().mockResolvedValue(1);
+    const res = await runTool(tool, {}, readOnlyCtx, bump);
+    expect(res).toEqual({ content: [{ type: "text", text: READ_ONLY_KEY_MESSAGE }], isError: true });
+    expect(tool.run).not.toHaveBeenCalled();
+    expect(bump).not.toHaveBeenCalled();
+  });
+
+  it("still run read tools", async () => {
+    const tool = { name: "r", title: "r", description: "read tool", readOnly: true, inputSchema: {} as never, run: vi.fn(async () => "ok") };
+    const res = await runTool(tool, {}, readOnlyCtx, async () => 1);
+    expect(res.content[0].text).toBe("ok");
+  });
+
+  it("are told they are read-only in the server instructions", () => {
+    expect(mcpInstructions(false)).toMatch(/READ-ONLY/);
+    expect(mcpInstructions(true)).not.toMatch(/READ-ONLY/);
   });
 });
 

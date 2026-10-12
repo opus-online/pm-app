@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(49);
+select plan(53);
 
 -- Phase 15: AI assistant MCP -- access keys, usage counter, service-role resolver.
 -- Spec: docs/superpowers/specs/2026-10-09-ai-assistant-mcp-design.md (Data model)
@@ -49,11 +49,11 @@ select throws_ok(
      values ('fe000000-0000-4000-8000-000000000002','Spoofed','hash-spoof','pm_zzzz', now() + interval '30 days') $$,
   '42501', null, 'insert for another user is rejected');
 
--- 3. insert with expires_at beyond 366 days is rejected
+-- 3. insert with expires_at beyond the 90-day cap (91 days of slack) is rejected
 select throws_ok(
   $$ insert into public.mcp_keys (user_id, label, key_hash, key_prefix, expires_at)
-     values ('fe000000-0000-4000-8000-000000000001','Too long','hash-toolong','pm_yyyy', now() + interval '400 days') $$,
-  '42501', null, 'insert with expires_at beyond 366 days is rejected');
+     values ('fe000000-0000-4000-8000-000000000001','Too long','hash-toolong','pm_yyyy', now() + interval '120 days') $$,
+  '42501', null, 'insert with expires_at beyond 90 days is rejected');
 
 -- insert hygiene: a pre-revoked key cannot be created (the insert column grant doesn't even
 -- include revoked_at/revoked_by, so this fails before RLS is reached)
@@ -254,6 +254,19 @@ select is(has_function_privilege('service_role', 'public.mcp_bump_requests(uuid)
   true, 'service_role can execute mcp_bump_requests');
 select is(has_function_privilege('authenticated', 'public.mcp_bump_counter(uuid, text)', 'EXECUTE'),
   false, 'authenticated cannot execute mcp_bump_counter');
+
+-- hardening (20261012000001): per-key write access, fixed at creation
+reset role;
+select is(has_column_privilege('authenticated', 'public.mcp_keys', 'can_write', 'UPDATE'),
+  false, 'authenticated cannot change a key''s can_write after creation');
+select is(has_column_privilege('authenticated', 'public.mcp_keys', 'can_write', 'INSERT'),
+  true, 'authenticated can choose can_write when creating a key');
+select is((select can_write from public.mcp_resolve_key('hash-valid')),
+  false, 'keys are read-only by default');
+insert into public.mcp_keys (id, user_id, label, key_hash, key_prefix, expires_at, can_write) values
+  ('fe100000-0000-4000-8000-000000000020','fe000000-0000-4000-8000-000000000001','Writer','hash-writer','pm_wrtr', now() + interval '10 days', true);
+select is((select can_write from public.mcp_resolve_key('hash-writer')),
+  true, 'mcp_resolve_key returns can_write for a write-enabled key');
 
 select * from finish();
 rollback;

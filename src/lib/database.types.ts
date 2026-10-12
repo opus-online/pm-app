@@ -890,6 +890,7 @@ export type Database = {
       }
       mcp_keys: {
         Row: {
+          can_write: boolean
           created_at: string
           expires_at: string
           id: string
@@ -902,6 +903,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          can_write?: boolean
           created_at?: string
           expires_at: string
           id?: string
@@ -914,6 +916,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          can_write?: boolean
           created_at?: string
           expires_at?: string
           id?: string
@@ -2416,6 +2419,7 @@ export type Database = {
       mcp_resolve_key: {
         Args: { p_hash: string }
         Returns: {
+          can_write: boolean
           key_id: string
           user_id: string
         }[]

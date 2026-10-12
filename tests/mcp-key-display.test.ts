@@ -15,6 +15,7 @@ const base = {
   expires_at: "2027-01-01T00:00:00Z",
   last_used_at: null,
   revoked_at: null,
+  can_write: false,
 };
 
 describe("mcpKeyStatus", () => {
@@ -46,9 +47,13 @@ describe("toMcpKeyRows", () => {
     expect(rows[2].status).toBe("revoked");
     for (const r of rows) {
       expect(Object.keys(r).sort()).toEqual(
-        ["createdAt", "expiresAt", "id", "label", "lastUsedAt", "prefix", "status"].sort(),
+        ["canWrite", "createdAt", "expiresAt", "id", "label", "lastUsedAt", "prefix", "status"].sort(),
       );
     }
+  });
+  it("carries the key's access level", () => {
+    const [row] = toMcpKeyRows([{ ...base, id: "a", can_write: true }], undefined, NOW);
+    expect(row.canWrite).toBe(true);
   });
   it("adds the owner when a resolver is given", () => {
     const [row] = toMcpKeyRows([{ ...base, id: "a" }], () => ({ name: "Sara", email: "s@x.ee" }), NOW);

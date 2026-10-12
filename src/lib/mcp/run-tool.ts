@@ -6,6 +6,9 @@ import { ToolError, type ToolContext, type ToolDef } from "@/lib/mcp/types";
 
 export type TextResult = { content: { type: "text"; text: string }[]; isError?: boolean };
 
+export const READ_ONLY_KEY_MESSAGE =
+  "This key is read-only. To make changes, create a key with read and write access in Settings → AI assistant.";
+
 /** Increments and returns this minute's call count for the key. */
 export type UsageBumper = (keyId: string) => Promise<number>;
 
@@ -17,6 +20,9 @@ function textResult(text: string, isError = false): TextResult {
  * the tool is never invoked. ToolError messages pass through verbatim; any other failure is
  * logged server-side and replaced by a generic message (never raw DB text). */
 export async function runTool(tool: ToolDef, args: unknown, ctx: ToolContext, bump: UsageBumper): Promise<TextResult> {
+  // Defence in depth: server.ts doesn't even register write tools for a read-only key.
+  if (!tool.readOnly && !ctx.canWrite) return textResult(READ_ONLY_KEY_MESSAGE, true);
+
   let calls: number;
   try {
     calls = await bump(ctx.keyId);

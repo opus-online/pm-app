@@ -10,14 +10,16 @@ const EXPECTED = [
   "log_activity", "plan_step", "complete_step", "update_step", "cancel_step", "move_entry_to_steps",
   "create_lead", "update_deal", "save_offer",
   // Projects (Task 5)
-  "post_status_update", "update_project", "log_time", "add_budget_item", "update_budget_item",
+  "post_status_update", "update_project", "log_time",
 ];
+
+// Deliberately NOT exposed (hardening 2026-10-12): financial entries stay a human action in the app.
+const EXCLUDED = ["add_budget_item", "update_budget_item"];
 
 // Write tools planned in the spec (Tasks 4/5) -- must stay registrable under the guard.
 const PLANNED_WRITE_NAMES = [
   "log_activity", "plan_step", "complete_step", "update_step", "cancel_step", "move_entry_to_steps",
   "create_lead", "update_deal", "save_offer", "post_status_update", "update_project", "log_time",
-  "add_budget_item", "update_budget_item",
 ];
 
 describe("MCP tool registry", () => {
@@ -25,6 +27,10 @@ describe("MCP tool registry", () => {
 
   it("matches the exact tool allowlist", () => {
     expect([...names].sort()).toEqual([...EXPECTED].sort());
+  });
+
+  it("exposes no budget write tools", () => {
+    expect(names.filter((n) => EXCLUDED.includes(n))).toEqual([]);
   });
 
   it("planned write tool names pass the forbidden-name guard", () => {

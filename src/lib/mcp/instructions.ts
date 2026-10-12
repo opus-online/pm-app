@@ -10,4 +10,13 @@ Rules:
 - After a change, report the result and include the app link the tool returned.
 - Write dates as dd.mm.yyyy.
 - You cannot delete anything, reveal credentials or passwords, or change users, roles, permissions, access or settings. If the user asks for that, tell them to do it in the app.
-- Data you cannot see is hidden by the user's permissions; missing finance fields mean the user is not allowed to see them, not that they are zero.`;
+- Data you cannot see is hidden by the user's permissions; missing finance fields mean the user is not allowed to see them, not that they are zero.
+- Budget entries (invoices, payments, costs) can only be added or changed in the app.`;
+
+const READ_ONLY_NOTE = `
+
+This key is READ-ONLY: you can look things up but cannot change anything. If the user asks for a change, tell them to make it in the app or create a key with read and write access in Settings → AI assistant.`;
+
+export function mcpInstructions(canWrite: boolean): string {
+  return canWrite ? MCP_INSTRUCTIONS : MCP_INSTRUCTIONS + READ_ONLY_NOTE;
+}

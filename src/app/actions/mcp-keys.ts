@@ -19,7 +19,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * Only `sha256(key)` and a display prefix are ever persisted (via generateKey()); the full key
  * is returned once, in this action's response, and never written anywhere. The insert goes
  * through the user's own cookie-scoped client, so the "insert own mcp_keys" RLS policy (user_id
- * = auth.uid(), expires_at within 1..366 days, revoked/used columns all null) is the real
+ * = auth.uid(), expires_at within 1..91 days, revoked/used columns all null) is the real
  * backstop -- this action just maps its failure to a friendly message.
  */
 export async function createMcpKeyAction(input: CreateMcpKeyInput): Promise<CreateResult> {
@@ -27,7 +27,7 @@ export async function createMcpKeyAction(input: CreateMcpKeyInput): Promise<Crea
 
   const parsed = createMcpKeySchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid key request." };
-  const { label, days } = parsed.data;
+  const { label, days, canWrite } = parsed.data;
 
   const { key, hash, prefix } = generateKey();
   const expiresAt = new Date(Date.now() + days * DAY_MS).toISOString();
@@ -41,6 +41,7 @@ export async function createMcpKeyAction(input: CreateMcpKeyInput): Promise<Crea
       key_hash: hash,
       key_prefix: prefix,
       expires_at: expiresAt,
+      can_write: canWrite,
     })
     .select("id")
     .single();
@@ -52,7 +53,7 @@ export async function createMcpKeyAction(input: CreateMcpKeyInput): Promise<Crea
     actorEmail: current.profile.email,
     resourceType: "mcp_key",
     resourceId: data.id,
-    metadata: { label, days, key_prefix: prefix },
+    metadata: { label, days, can_write: canWrite, key_prefix: prefix },
   });
 
   revalidatePath("/settings");

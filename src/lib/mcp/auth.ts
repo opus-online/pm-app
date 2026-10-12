@@ -5,7 +5,8 @@
 import { hashKey } from "@/lib/mcp/keys";
 import { isOverRequestCeiling } from "@/lib/mcp/rate-limit";
 
-export type McpAuth = { userId: string; keyId: string };
+/** `canWrite` false = read-only key: only readOnly tools are exposed (see ./server.ts). */
+export type McpAuth = { userId: string; keyId: string; canWrite: boolean };
 
 /** Looks a key hash up; returns null when the key is unknown, revoked, expired or its user is not
  * active (mcp_resolve_key returns no row in all of those cases -- deliberately indistinguishable). */

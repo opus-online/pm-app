@@ -84,6 +84,7 @@ export function McpKeysTable({
         <TableRow>
           {showOwner && <TableHead>User</TableHead>}
           <TableHead>Key</TableHead>
+          <TableHead>Access</TableHead>
           <TableHead>Created</TableHead>
           <TableHead>Expires</TableHead>
           <TableHead>Last used</TableHead>
@@ -108,6 +109,7 @@ export function McpKeysTable({
               </div>
               <code className="font-mono text-xs text-muted-foreground">{k.prefix}…</code>
             </TableCell>
+            <TableCell className="whitespace-nowrap">{ACCESS_LABEL[String(k.canWrite) as "true" | "false"]}</TableCell>
             <TableCell className="tabular-nums">{formatDateEt(k.createdAt)}</TableCell>
             <TableCell className="tabular-nums">{formatDateEt(k.expiresAt)}</TableCell>
             <TableCell className="tabular-nums">
@@ -149,10 +151,13 @@ function RevokeKeyButton({ keyRow, showOwner }: { keyRow: McpKeyRow; showOwner: 
   );
 }
 
-const EXPIRY_ITEMS = MCP_KEY_EXPIRY_DAYS.map((d) => ({
-  value: String(d),
-  label: d === 365 ? "1 year" : `${d} days`,
-}));
+const EXPIRY_ITEMS = MCP_KEY_EXPIRY_DAYS.map((d) => ({ value: String(d), label: `${d} days` }));
+
+const ACCESS_LABEL = { false: "Read only", true: "Read and write" } as const;
+const ACCESS_ITEMS = [
+  { value: "false", label: ACCESS_LABEL.false },
+  { value: "true", label: ACCESS_LABEL.true },
+];
 
 function CreateKeyDialog() {
   const [open, setOpen] = useState(false);
@@ -178,13 +183,14 @@ function CreateKeyForm({ onClose }: { onClose: () => void }) {
   const [isPending, startTransition] = useTransition();
   const [label, setLabel] = useState("");
   const [days, setDays] = useState<McpKeyExpiryDays>(90);
+  const [canWrite, setCanWrite] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (isPending) return;
-    const parsed = createMcpKeySchema.safeParse({ label, days });
+    const parsed = createMcpKeySchema.safeParse({ label, days, canWrite });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Check the details.");
       return;
@@ -212,7 +218,7 @@ function CreateKeyForm({ onClose }: { onClose: () => void }) {
     <form onSubmit={submit} className="grid gap-4">
       <DialogHeader>
         <DialogTitle>Create key</DialogTitle>
-        <DialogDescription className="sr-only">Name the key and choose when it expires</DialogDescription>
+        <DialogDescription className="sr-only">Name the key, choose its access and when it expires</DialogDescription>
       </DialogHeader>
 
       {error && (
@@ -252,6 +258,26 @@ function CreateKeyForm({ onClose }: { onClose: () => void }) {
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div className="grid gap-1.5">
+        <Label htmlFor={`${ids}-access`}>Access</Label>
+        <Select
+          items={ACCESS_ITEMS}
+          value={String(canWrite)}
+          onValueChange={(v) => v && setCanWrite(v === "true")}
+        >
+          <SelectTrigger id={`${ids}-access`} className="w-full sm:w-56">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ACCESS_ITEMS.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <DialogFooter>

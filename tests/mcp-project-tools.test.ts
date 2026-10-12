@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { TOOLS } from "@/lib/mcp/registry";
 import {
-  NO_EDIT_PROJECT, NO_EDIT_STATUS, NO_INTERNAL_COST, NO_LOG_TIME, NO_MANAGE_BUDGET, PROJECT_WRITE_TOOLS,
+  NO_EDIT_PROJECT, NO_EDIT_STATUS, NO_LOG_TIME, PROJECT_WRITE_TOOLS,
   UPDATABLE_PROJECT_FIELDS, assertDateOrder, buildProjectPatch,
 } from "@/lib/mcp/tools/projects";
 import { WRITE_NOTE } from "@/lib/mcp/tools/sales";
@@ -33,10 +33,8 @@ function permissionCtx(allowed: Record<string, boolean> | boolean) {
 }
 
 describe("project tool definitions", () => {
-  it("are the five registered write tools, each marked as changing data", () => {
-    expect(PROJECT_WRITE_TOOLS.map((t) => t.name).sort()).toEqual(
-      ["add_budget_item", "log_time", "post_status_update", "update_budget_item", "update_project"]
-    );
+  it("are the three registered write tools, each marked as changing data", () => {
+    expect(PROJECT_WRITE_TOOLS.map((t) => t.name).sort()).toEqual(["log_time", "post_status_update", "update_project"]);
     for (const t of PROJECT_WRITE_TOOLS) {
       expect(TOOLS).toContain(t);
       expect(t.readOnly).toBe(false);
@@ -56,10 +54,6 @@ describe("project tool input schemas", () => {
     ["log_time", { project_id: ID, month: "2026-13", hours: 10 }, /month/],
     ["log_time", { project_id: ID, month: "2026-10-01", hours: 10 }, /month/],
     ["log_time", { project_id: ID, month: "2026-10" }, /hours/],
-    ["add_budget_item", { project_id: ID, item_type: "refund", name: "X", amount: 1, occurred_on: "2026-10-01" }, /item_type/],
-    ["add_budget_item", { project_id: ID, item_type: "invoice", name: "X", amount: 1, occurred_on: "01.10.2026" }, /occurred_on/],
-    ["update_budget_item", { item_id: 0, name: "X" }, /item_id/],
-    ["update_budget_item", { item_id: "abc", name: "X" }, /item_id/],
   ];
   it.each(bad)("%s rejects %j before touching the database", async (name, args, re) => {
     await expect(tool(name).run(args, untouchableCtx())).rejects.toThrow(re);
@@ -71,13 +65,8 @@ describe("project tool input schemas", () => {
     }
   });
 
-  it("update_budget_item can't change the item type", async () => {
-    await expect(tool("update_budget_item").run({ item_id: 5, item_type: "invoice" }, untouchableCtx())).rejects.toThrow(/Invalid input/);
-  });
-
-  it("update_project / update_budget_item need at least one field", async () => {
+  it("update_project needs at least one field", async () => {
     await expect(tool("update_project").run({ project_id: ID }, untouchableCtx())).rejects.toThrow(/at least one field/);
-    await expect(tool("update_budget_item").run({ item_id: 5 }, untouchableCtx())).rejects.toThrow(/at least one field/);
   });
 });
 
@@ -138,21 +127,6 @@ describe("project tool permission gates", () => {
     const { ctx } = permissionCtx(true);
     await expect(tool("log_time").run({ project_id: ID, month: "2026-10", hours: 0 }, ctx)).rejects.toThrow(/greater than 0/);
     await expect(tool("log_time").run({ project_id: ID, month: "2026-10", hours: 745 }, ctx)).rejects.toThrow(/more hours than a month/);
-  });
-
-  it("add_budget_item refuses without manage_budget", async () => {
-    const { ctx } = permissionCtx(false);
-    await expect(
-      tool("add_budget_item").run({ project_id: ID, item_type: "invoice", name: "Inv 1", amount: 100, occurred_on: "2026-10-01" }, ctx)
-    ).rejects.toThrow(NO_MANAGE_BUDGET);
-  });
-
-  it("add_budget_item cost types need view_internal_cost too (PM can't)", async () => {
-    const { ctx, audit } = permissionCtx({ manage_budget: true, view_internal_cost: false });
-    await expect(
-      tool("add_budget_item").run({ project_id: ID, item_type: "actual_cost", name: "Hosting", amount: 100, occurred_on: "2026-10-01" }, ctx)
-    ).rejects.toThrow(NO_INTERNAL_COST);
-    expect(audit).not.toHaveBeenCalled();
   });
 });
 
@@ -294,26 +268,3 @@ describe("start date / deadline order", () => {
   });
 });
 
-describe("update_budget_item cost gate", () => {
-  const costItem = { id: 45, item_type: "actual_cost", budget_id: "b1", budgets: { project_id: ID } };
-  const budgetDb = (perms: Record<string, boolean>) =>
-    dbCtx((c) => {
-      if (c.table === "budget_items" && c.op === "select") return { data: costItem, error: null };
-      if (c.table === "budget_items" && c.op === "update") return { data: { id: 45 }, error: null };
-      throw new Error(`unexpected ${c.op} on ${c.table}`);
-    }, perms);
-
-  it("a stored cost item needs view_internal_cost; nothing is written", async () => {
-    const { ctx, calls, audit } = budgetDb({ manage_budget: true, view_internal_cost: false });
-    await expect(tool("update_budget_item").run({ item_id: 45, amount: 1 }, ctx)).rejects.toThrow(NO_INTERNAL_COST);
-    expect(calls.filter((c) => c.op === "update")).toEqual([]);
-    expect(audit).not.toHaveBeenCalled();
-  });
-
-  it("finance can update it (only the sent fields)", async () => {
-    const { ctx, calls, audit } = budgetDb({ manage_budget: true, view_internal_cost: true });
-    await tool("update_budget_item").run({ item_id: 45, amount: 250 }, ctx);
-    expect(calls.filter((c) => c.op === "update")[0].values).toEqual({ amount: 250 });
-    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: "budget_item.updated" }));
-  });
-});

@@ -19,6 +19,8 @@ export type ToolContext = {
   supabase: SupabaseClient<Database>;
   userId: string;
   keyId: string;
+  /** The key's access level; runTool refuses write tools when false. */
+  canWrite: boolean;
   /** Writes an audit_logs row (service role, inside writeAudit -- the one allowed audit use). */
   audit: (entry: ToolAuditEntry) => Promise<void>;
 };

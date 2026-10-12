@@ -13,3 +13,8 @@ export const FORBIDDEN_NAME_PATTERN =
   /delete|remove|credential|secret|password|role|access|delegat|user_admin|setting|permission|grant|revoke|token|invite|purge|destroy|admin|impersonat|api_key|mcp_key|access_key/i;
 
 export const TOOLS: ToolDef[] = [...READ_TOOLS, ...SALES_TOOLS, ...PROJECT_WRITE_TOOLS];
+
+/** What a key gets to see: read-only keys get only the read tools. */
+export function toolsForKey(canWrite: boolean): ToolDef[] {
+  return canWrite ? TOOLS : TOOLS.filter((t) => t.readOnly);
+}

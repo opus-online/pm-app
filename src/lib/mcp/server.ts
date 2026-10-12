@@ -3,8 +3,8 @@ import { createMcpHandler } from "mcp-handler";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createUserScopedClient } from "@/lib/mcp/user-client";
 import type { KeyResolver, McpAuth } from "@/lib/mcp/auth";
-import { MCP_INSTRUCTIONS } from "@/lib/mcp/instructions";
-import { FORBIDDEN_NAME_PATTERN, TOOLS } from "@/lib/mcp/registry";
+import { mcpInstructions } from "@/lib/mcp/instructions";
+import { FORBIDDEN_NAME_PATTERN, toolsForKey } from "@/lib/mcp/registry";
 import { runTool } from "@/lib/mcp/run-tool";
 import type { ToolAuditEntry, ToolContext } from "@/lib/mcp/types";
 import { writeAudit } from "@/lib/audit";
@@ -21,7 +21,8 @@ export const resolveKeyHash: KeyResolver = async (keyHash) => {
   const { data, error } = await createAdminClient().rpc("mcp_resolve_key", { p_hash: keyHash });
   if (error) throw new Error(`mcp_resolve_key: ${error.message}`);
   const row = data?.[0];
-  return row ? { keyId: row.key_id, userId: row.user_id } : null;
+  // Anything but an explicit true is read-only (fail closed).
+  return row ? { keyId: row.key_id, userId: row.user_id, canWrite: row.can_write === true } : null;
 };
 
 /** Increments and returns this minute's authenticated-request count (any method) for the key. */
@@ -49,6 +50,7 @@ export async function buildMcpHandler(auth: McpAuth): Promise<(req: Request) => 
     supabase,
     userId: auth.userId,
     keyId: auth.keyId,
+    canWrite: auth.canWrite,
     audit: async (entry: ToolAuditEntry) => {
       // The actor's email comes from their own profile row (user-scoped read), fetched once.
       actorEmail ??= Promise.resolve(
@@ -67,7 +69,7 @@ export async function buildMcpHandler(auth: McpAuth): Promise<(req: Request) => 
 
   return createMcpHandler(
     (server) => {
-      for (const tool of TOOLS) {
+      for (const tool of toolsForKey(auth.canWrite)) {
         // Defence in depth: the registry test is the primary guard; refuse to even expose a
         // forbidden-looking tool if one ever slips in.
         if (FORBIDDEN_NAME_PATTERN.test(tool.name)) {
@@ -79,7 +81,9 @@ export async function buildMcpHandler(auth: McpAuth): Promise<(req: Request) => 
             title: tool.title,
             description: tool.description,
             inputSchema: tool.inputSchema,
-            annotations: { title: tool.title, readOnlyHint: tool.readOnly, destructiveHint: false, openWorldHint: false },
+            // Every write is flagged destructive so MCP clients ask the user before running it --
+            // the server-side counterpart to the "confirm before any change" instruction.
+            annotations: { title: tool.title, readOnlyHint: tool.readOnly, destructiveHint: !tool.readOnly, openWorldHint: false },
           },
           (args) => runTool(tool, args, ctx, bumpUsage)
         );
@@ -87,7 +91,7 @@ export async function buildMcpHandler(auth: McpAuth): Promise<(req: Request) => 
     },
     {
       serverInfo: { name: "pm-cms", version: "1.0.0" },
-      instructions: MCP_INSTRUCTIONS,
+      instructions: mcpInstructions(auth.canWrite),
     }
   );
 }
