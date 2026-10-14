@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { consentProblem, isAllowedRedirectUri } from "@/lib/mcp/oauth-consent";
+import { allRedirectUrisAllowed, consentProblem, isAllowedRedirectUri, isAllowedRedirectUrl } from "@/lib/mcp/oauth-consent";
 
 describe("isAllowedRedirectUri", () => {
   it("allows Claude's callbacks and local clients", () => {
@@ -36,5 +36,21 @@ describe("consentProblem", () => {
   });
   it("refuses a disallowed app", () => {
     expect(consentProblem({ ...ok, redirect_uri: "https://evil.com/cb" }, me)).toMatch(/isn't allowed/);
+  });
+});
+
+describe("already-consented redirects (review Critical #1)", () => {
+  it("allows a code redirect only to an allowlisted callback", () => {
+    expect(isAllowedRedirectUrl("https://claude.ai/api/mcp/auth_callback?code=abc&state=xyz")).toBe(true);
+    expect(isAllowedRedirectUrl("http://localhost:8765/callback?code=abc")).toBe(true);
+    expect(isAllowedRedirectUrl("https://evil.com/cb?code=abc&state=xyz")).toBe(false);
+    expect(isAllowedRedirectUrl("https://claude.ai.evil.com/api/mcp/auth_callback?code=abc")).toBe(false);
+    expect(isAllowedRedirectUrl("https://claude.ai/api/mcp/auth_callback#code=abc")).toBe(false);
+    expect(isAllowedRedirectUrl("garbage")).toBe(false);
+  });
+  it("requires every registered redirect URI of a client to be allowlisted", () => {
+    expect(allRedirectUrisAllowed(["https://claude.ai/api/mcp/auth_callback", "https://claude.com/api/mcp/auth_callback"])).toBe(true);
+    expect(allRedirectUrisAllowed(["https://claude.ai/api/mcp/auth_callback", "https://evil.com/cb"])).toBe(false);
+    expect(allRedirectUrisAllowed([])).toBe(false);
   });
 });

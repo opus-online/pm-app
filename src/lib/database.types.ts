@@ -2469,7 +2469,7 @@ export type Database = {
       }
       mcp_disconnect: { Args: { p_id: string }; Returns: string }
       mcp_resolve_connection: {
-        Args: { p_client: string; p_user: string }
+        Args: { p_client: string; p_issued_at: string; p_user: string }
         Returns: {
           can_write: boolean
           connection_id: string
@@ -2513,6 +2513,7 @@ export type Database = {
         Args: { p_assignee: string; p_id: string }
         Returns: undefined
       }
+      reject_oauth_client_tokens: { Args: never; Returns: undefined }
       remove_project_person: {
         Args: { p_project: string; p_user_id: string }
         Returns: undefined

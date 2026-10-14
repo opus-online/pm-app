@@ -218,10 +218,14 @@ describe("OAuth credentials", () => {
 
   it("requires a client_id claim (browser session tokens are not connections)", () => {
     const sub = "11111111-1111-4111-8111-111111111111";
-    expect(oauthIdentity({ sub, client_id: "c1" })).toEqual({ userId: sub, clientId: "c1" });
-    expect(oauthIdentity({ sub })).toBeNull();
-    expect(oauthIdentity({ sub, client_id: "" })).toBeNull();
-    expect(oauthIdentity({ sub: "not-a-uuid", client_id: "c1" })).toBeNull();
+    expect(oauthIdentity({ sub, client_id: "c1", iat: 1760443200 })).toEqual({
+      userId: sub, clientId: "c1", issuedAt: "2025-10-14T12:00:00.000Z",
+    });
+    expect(oauthIdentity({ sub, iat: 1760443200 })).toBeNull();
+    expect(oauthIdentity({ sub, client_id: "", iat: 1760443200 })).toBeNull();
+    expect(oauthIdentity({ sub: "not-a-uuid", client_id: "c1", iat: 1760443200 })).toBeNull();
+    // review Important #1: without iat a token can't be tied to the connection it was issued for
+    expect(oauthIdentity({ sub, client_id: "c1" })).toBeNull();
     expect(oauthIdentity(null)).toBeNull();
   });
 
@@ -229,7 +233,8 @@ describe("OAuth credentials", () => {
     const resolveKey = vi.fn();
     const resolveOAuth = vi.fn().mockResolvedValue({ ...ids, canWrite: false });
     const res = await authenticateRequest(req(`Bearer ${jwt}`), resolveKey, { resolveOAuth });
-    expect(res).toEqual({ ...ids, canWrite: false, kind: "oauth", accessToken: jwt });
+    // review Critical #2: the raw token is never carried on -- /api/mcp re-mints its own JWT
+    expect(res).toEqual({ ...ids, canWrite: false, kind: "oauth" });
     expect(resolveOAuth).toHaveBeenCalledWith(jwt);
     expect(resolveKey).not.toHaveBeenCalled();
   });

@@ -21,6 +21,22 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        // The claude.ai connector consent page and login must never be framed by another site
+        // (clickjacking an "Allow"). Same-origin framing isn't used anywhere either.
+        source: "/oauth/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "X-Frame-Options", value: "DENY" },
+        ],
+      },
+      {
+        source: "/login",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "X-Frame-Options", value: "DENY" },
+        ],
+      },
     ];
   },
 };

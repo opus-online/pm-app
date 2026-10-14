@@ -1,6 +1,6 @@
 import { getPublicOrigin } from "mcp-handler";
 import { authenticateRequest, enforceRequestCeiling, jsonError } from "@/lib/mcp/auth";
-import { resourceMetadataUrl } from "@/lib/mcp/oauth-metadata";
+import { appOrigin, resourceMetadataUrl } from "@/lib/mcp/oauth-metadata";
 import { buildMcpHandler, bumpRequests, resolveKeyHash, resolveOAuthToken } from "@/lib/mcp/server";
 
 // Streamable HTTP MCP endpoint (stateless). Auth runs HERE, before anything MCP-related: a Bearer
@@ -12,7 +12,7 @@ import { buildMcpHandler, bumpRequests, resolveKeyHash, resolveOAuthToken } from
 async function handle(req: Request): Promise<Response> {
   const auth = await authenticateRequest(req, resolveKeyHash, {
     resolveOAuth: resolveOAuthToken,
-    resourceMetadataUrl: resourceMetadataUrl(getPublicOrigin(req)),
+    resourceMetadataUrl: resourceMetadataUrl(appOrigin(process.env.NEXT_PUBLIC_SITE_URL, getPublicOrigin(req))),
   });
   if (auth instanceof Response) return auth;
 

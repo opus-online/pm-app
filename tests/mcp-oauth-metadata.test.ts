@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { authServerUrl, protectedResourceMetadata, resourceMetadataUrl } from "@/lib/mcp/oauth-metadata";
+import { appOrigin, authServerUrl, protectedResourceMetadata, resourceMetadataUrl } from "@/lib/mcp/oauth-metadata";
 
 describe("oauth metadata", () => {
   it("points the MCP resource at Supabase's auth server", () => {
@@ -28,5 +28,15 @@ describe("isSessionlessPath", async () => {
     expect(isSessionlessPath("/.well-known/oauth-protected-resourcex")).toBe(false);
     expect(isSessionlessPath("/oauth/consent")).toBe(false);
     expect(isSessionlessPath("/dashboard")).toBe(false);
+  });
+});
+
+describe("appOrigin (review Important #3)", () => {
+  it("prefers the configured site URL over request headers", () => {
+    expect(appOrigin("https://pm.example.com/", "https://spoofed.example")).toBe("https://pm.example.com");
+  });
+  it("falls back to the request origin when no site URL is configured", () => {
+    expect(appOrigin(undefined, "http://localhost:3200")).toBe("http://localhost:3200");
+    expect(appOrigin("", "http://localhost:3200")).toBe("http://localhost:3200");
   });
 });

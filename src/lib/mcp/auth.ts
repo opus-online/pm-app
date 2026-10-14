@@ -12,8 +12,9 @@ import { isOverRequestCeiling } from "@/lib/mcp/rate-limit";
  * connections (also the rate-limit counter key). */
 export type ResolvedCredential = { userId: string; keyId: string; canWrite: boolean };
 
-/** `canWrite` false = read-only: only readOnly tools are exposed (see ./server.ts). */
-export type McpAuth = ResolvedCredential & ({ kind: "key" } | { kind: "oauth"; accessToken: string });
+/** `canWrite` false = read-only: only readOnly tools are exposed (see ./server.ts). The OAuth
+ * token itself is deliberately not carried: /api/mcp re-mints its own short JWT for the user. */
+export type McpAuth = ResolvedCredential & { kind: "key" | "oauth" };
 
 /** Looks a key hash up; returns null when the key is unknown, revoked, expired or its user is not
  * active (mcp_resolve_key returns no row in all of those cases -- deliberately indistinguishable). */
@@ -47,13 +48,16 @@ export function extractBearerKey(header: string | null): string | null {
   return credential?.kind === "key" ? credential.key : null;
 }
 
-const oauthClaims = z.object({ sub: z.uuid(), client_id: z.string().min(1) });
+const oauthClaims = z.object({ sub: z.uuid(), client_id: z.string().min(1), iat: z.number().int().positive() });
 
 /** An OAuth access token carries `client_id`; a normal browser session token doesn't and is
- * refused here, so a stolen session cookie can't be replayed against /api/mcp. */
-export function oauthIdentity(claims: unknown): { userId: string; clientId: string } | null {
+ * refused here, so a stolen session cookie can't be replayed against /api/mcp. `issuedAt` lets
+ * the resolver refuse tokens older than the current connection (disconnect + reconnect). */
+export function oauthIdentity(claims: unknown): { userId: string; clientId: string; issuedAt: string } | null {
   const parsed = oauthClaims.safeParse(claims);
-  return parsed.success ? { userId: parsed.data.sub, clientId: parsed.data.client_id } : null;
+  return parsed.success
+    ? { userId: parsed.data.sub, clientId: parsed.data.client_id, issuedAt: new Date(parsed.data.iat * 1000).toISOString() }
+    : null;
 }
 
 export function jsonError(status: number, error: string, message: string, headers?: HeadersInit): Response {
@@ -109,9 +113,7 @@ export async function authenticateRequest(
       opts.resourceMetadataUrl,
     );
   }
-  return credential.kind === "key"
-    ? { ...resolved, kind: "key" }
-    : { ...resolved, kind: "oauth", accessToken: credential.token };
+  return { ...resolved, kind: credential.kind };
 }
 
 /** Increments and returns this minute's authenticated-request count for the key. */

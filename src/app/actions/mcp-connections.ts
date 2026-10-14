@@ -6,6 +6,7 @@ import { requireActiveUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { writeAudit } from "@/lib/audit";
 import { consentProblem } from "@/lib/mcp/oauth-consent";
+import { clientRedirectsAllowed } from "@/lib/mcp/oauth-client-check";
 
 // claude.ai connector (OAuth) actions. Spec: docs/superpowers/specs/2026-10-14-claude-connector-oauth-design.md
 
@@ -28,6 +29,7 @@ export async function approveConnectionAction(input: { authorizationId: string; 
   if (error || !details || !("authorization_id" in details)) return { error: EXPIRED };
   const problem = consentProblem(details, current.user.id);
   if (problem) return { error: problem };
+  if (!(await clientRedirectsAllowed(details.client.id))) return { error: "This app isn't allowed to connect to PM app." };
 
   const clientName = details.client.name?.trim() || "Unknown app";
   const { data: connectionId, error: connectError } = await supabase.rpc("mcp_connect", {

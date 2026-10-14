@@ -19,9 +19,9 @@ insert into public.mcp_connections (id, user_id, client_id, client_name) values
 -- privileges
 select is(has_table_privilege('authenticated', 'public.mcp_connections', 'INSERT'), false, 'authenticated cannot insert connections directly');
 select is(has_table_privilege('authenticated', 'public.mcp_connections', 'UPDATE'), false, 'authenticated cannot update connections directly');
-select is(has_function_privilege('authenticated', 'public.mcp_resolve_connection(uuid, text)', 'EXECUTE'), false, 'authenticated cannot resolve connections');
+select is(has_function_privilege('authenticated', 'public.mcp_resolve_connection(uuid, text, timestamptz)', 'EXECUTE'), false, 'authenticated cannot resolve connections');
 select is(has_function_privilege('anon', 'public.mcp_connect(text, text, boolean)', 'EXECUTE'), false, 'anon cannot connect');
-select is(has_function_privilege('service_role', 'public.mcp_resolve_connection(uuid, text)', 'EXECUTE'), true, 'service_role can resolve connections');
+select is(has_function_privilege('service_role', 'public.mcp_resolve_connection(uuid, text, timestamptz)', 'EXECUTE'), true, 'service_role can resolve connections');
 
 set local role authenticated;
 set local "request.jwt.claims" to '{"sub":"fd000000-0000-4000-8000-000000000001","role":"authenticated"}';
@@ -44,14 +44,14 @@ select throws_ok($$ select public.mcp_connect('client-a', 'Claude', false) $$, '
 
 reset role;
 -- resolver: active row resolves with can_write; after disconnect it doesn't
-select is((select can_write from public.mcp_resolve_connection('fd000000-0000-4000-8000-000000000001', 'client-a')), true, 'resolver returns can_write for an active connection');
+select is((select can_write from public.mcp_resolve_connection('fd000000-0000-4000-8000-000000000001', 'client-a', now())), true, 'resolver returns can_write for an active connection');
 
 set local role authenticated;
 set local "request.jwt.claims" to '{"sub":"fd000000-0000-4000-8000-000000000001","role":"authenticated"}';
 select is(public.mcp_disconnect((select id from public.mcp_connections where client_id='client-a' and revoked_at is null)), 'client-a', 'u1 disconnect returns the client id');
 
 reset role;
-select is((select count(*)::int from public.mcp_resolve_connection('fd000000-0000-4000-8000-000000000001', 'client-a')), 0, 'resolver returns nothing after disconnect');
+select is((select count(*)::int from public.mcp_resolve_connection('fd000000-0000-4000-8000-000000000001', 'client-a', now())), 0, 'resolver returns nothing after disconnect');
 
 select * from finish();
 rollback;

@@ -2,7 +2,7 @@ import "server-only";
 import { createMcpHandler } from "mcp-handler";
 import { createClient as createSupabaseClient, isAuthRetryableFetchError } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createTokenClient, createUserScopedClient } from "@/lib/mcp/user-client";
+import { createUserScopedClient } from "@/lib/mcp/user-client";
 import { oauthIdentity, type KeyResolver, type McpAuth, type OAuthResolver } from "@/lib/mcp/auth";
 import { mcpInstructions } from "@/lib/mcp/instructions";
 import { FORBIDDEN_NAME_PATTERN, toolsForKey } from "@/lib/mcp/registry";
@@ -45,6 +45,7 @@ export const resolveOAuthToken: OAuthResolver = async (token) => {
   const { data: rows, error: rpcError } = await createAdminClient().rpc("mcp_resolve_connection", {
     p_user: identity.userId,
     p_client: identity.clientId,
+    p_issued_at: identity.issuedAt,
   });
   if (rpcError) throw new Error(`mcp_resolve_connection: ${rpcError.message}`);
   const row = rows?.[0];
@@ -70,7 +71,9 @@ async function bumpUsage(keyId: string): Promise<number> {
  * this way the identity is captured in a closure from the route's own auth check -- tools can't
  * be reached without it. */
 export async function buildMcpHandler(auth: McpAuth): Promise<(req: Request) => Promise<Response>> {
-  const supabase = auth.kind === "oauth" ? createTokenClient(auth.accessToken) : await createUserScopedClient(auth.userId);
+  // Both credential kinds talk to the database with a freshly minted 5-minute JWT for the user.
+  // OAuth tokens are never forwarded: the database refuses them (reject_oauth_client_tokens).
+  const supabase = await createUserScopedClient(auth.userId);
   let actorEmail: Promise<string | null> | null = null;
   const ctx: ToolContext = {
     supabase,

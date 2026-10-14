@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import { requireActiveUser } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { consentProblem } from "@/lib/mcp/oauth-consent";
+import { consentProblem, isAllowedRedirectUrl } from "@/lib/mcp/oauth-consent";
+import { clientRedirectsAllowed } from "@/lib/mcp/oauth-client-check";
+
+const NOT_ALLOWED = "This app isn't allowed to connect to PM app.";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConsentForm } from "./consent-form";
 
@@ -20,10 +23,16 @@ export default async function ConsentPage({
   const supabase = await createClient();
   const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
   if (error || !data) return <Problem text="This connection request has expired. Start again from Claude." />;
-  if (!("authorization_id" in data)) redirect(data.redirect_url);
+  // Already consented: Supabase hands back a ready redirect with a code. Only follow it to an
+  // allowlisted callback (a client may have registered other addresses too).
+  if (!("authorization_id" in data)) {
+    if (!isAllowedRedirectUrl(data.redirect_url)) return <Problem text={NOT_ALLOWED} />;
+    redirect(data.redirect_url);
+  }
 
   const problem = consentProblem(data, current.user.id);
   if (problem) return <Problem text={problem} />;
+  if (!(await clientRedirectsAllowed(data.client.id))) return <Problem text={NOT_ALLOWED} />;
 
   return (
     <ConsentForm

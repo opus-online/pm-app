@@ -5,6 +5,12 @@ export const MCP_RESOURCE_PATH = "/api/mcp";
 
 const trim = (url: string) => url.replace(/\/+$/, "");
 
+/** The app's public origin: the configured site URL when set (never a request header a client
+ * could spoof into a cached metadata document), else the request's own origin (local dev). */
+export function appOrigin(configured: string | undefined, requestOrigin: string): string {
+  return trim(configured || requestOrigin);
+}
+
 export function authServerUrl(supabaseUrl: string): string {
   return `${trim(supabaseUrl)}/auth/v1`;
 }

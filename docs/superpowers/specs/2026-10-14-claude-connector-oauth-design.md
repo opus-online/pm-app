@@ -164,7 +164,10 @@ clients try those fallbacks; confirm on prod during go-live.
 
 ## Go-live checklist
 
-1. `npx supabase db push` (migration `20261014000001_mcp_connections`).
+1. `npx supabase db push` (migrations `20261014000001_mcp_connections` + `20261014000002_mcp_oauth_hardening`).
+   The second sets PostgREST's `db_pre_request` on the `authenticator` role; confirm afterwards that a
+   normal login still loads the dashboard (it must) and that an OAuth token sent straight to
+   `/rest/v1` gets 403.
 2. Supabase dashboard → Authentication → OAuth Server: **enable**, Authorization Path
    `/oauth/consent`, **allow dynamic client registration**. (Site URL is already the prod URL.)
 3. Push `master` (Vercel deploys).
@@ -173,3 +176,22 @@ clients try those fallbacks; confirm on prod during go-live.
 5. If claude.ai's token step fails with an ID-token/`openid` error: switch the Supabase project to
    asymmetric JWT signing keys (Settings → JWT Keys) and keep the legacy secret active so `pmk_`
    keys keep working.
+
+## Final-review hardening (2026-10-14)
+
+- **Redirect allowlist on every path.** The already-consented branch only follows an allowlisted
+  callback, and approval requires *every* redirect URI the client registered to be allowlisted
+  (service-role `auth.admin.oauth.getClient`) — a client can't pair a Claude callback with another
+  address.
+- **OAuth tokens never reach the database directly.** `public.reject_oauth_client_tokens()` runs as
+  PostgREST's pre-request hook and refuses any JWT with a `client_id` claim (403). `/api/mcp`
+  verifies the token, then uses its own 5-minute minted JWT (as for keys) — so "Read only" and
+  Disconnect hold everywhere, and the token can't mint keys or upgrade its own connection.
+- **No revival after reconnect.** `mcp_resolve_connection` takes the token's `iat`; tokens issued
+  before the current connection row are refused.
+- **Anti-framing** (`frame-ancestors 'none'` + `X-Frame-Options: DENY`) on `/oauth/*` and `/login`.
+- **Discovery origin from config** (`NEXT_PUBLIC_SITE_URL`), request headers only as a local fallback.
+
+Residual (not code-fixable here): Supabase Auth's own endpoints (e.g. `/auth/v1/user`) and Storage
+also accept the token; Storage only allows image uploads to the public avatars bucket (same as the
+user's own rights). Verify on prod that `PUT /auth/v1/user` with an OAuth app token is rejected.

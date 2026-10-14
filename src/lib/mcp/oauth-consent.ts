@@ -19,6 +19,25 @@ export function isAllowedRedirectUri(uri: string): boolean {
   return url.protocol === "http:" && LOCAL_HOSTS.has(url.hostname);
 }
 
+/** A full redirect (callback + ?code=&state=) Supabase hands back for an already-consented
+ * client: its base must be allowlisted -- otherwise a client that registered extra redirect URIs
+ * could have codes sent anywhere once the user consented to it via a Claude callback. */
+export function isAllowedRedirectUrl(redirectUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(redirectUrl);
+  } catch {
+    return false;
+  }
+  if (url.hash) return false;
+  return isAllowedRedirectUri(`${url.origin}${url.pathname}`);
+}
+
+/** Every redirect URI a client registered must be allowlisted, not just the one in this request. */
+export function allRedirectUrisAllowed(uris: string[]): boolean {
+  return uris.length > 0 && uris.every(isAllowedRedirectUri);
+}
+
 /** Why this authorization can't be approved by `userId`, or null if it can. */
 export function consentProblem(details: { redirect_uri: string; user: { id: string } }, userId: string): string | null {
   if (details.user.id !== userId) return "This request was started from a different account. Start again from Claude.";
