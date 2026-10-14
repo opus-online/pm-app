@@ -4,6 +4,7 @@ import {
   claudeDesktopConfig,
   mcpKeyStatus,
   toMcpKeyRows,
+  toMcpConnectionRows,
 } from "@/lib/mcp/key-display";
 
 const NOW = new Date("2026-10-09T12:00:00Z");
@@ -77,5 +78,22 @@ describe("connect snippets", () => {
         },
       },
     });
+  });
+});
+
+describe("toMcpConnectionRows", () => {
+  const conn = {
+    id: "c1", client_id: "secret-client", client_name: "Claude", can_write: true,
+    created_at: "2026-10-01T10:00:00Z", last_used_at: null, revoked_at: null, user_id: "u",
+  };
+  it("allowlists fields (never client_id/user_id), newest first", () => {
+    const rows = toMcpConnectionRows([conn, { ...conn, id: "c2", created_at: "2026-10-05T00:00:00Z" }]);
+    expect(rows.map((r) => r.id)).toEqual(["c2", "c1"]);
+    expect(Object.keys(rows[0]).sort()).toEqual(["appName", "canWrite", "createdAt", "id", "lastUsedAt"]);
+    expect(rows[0]).toMatchObject({ appName: "Claude", canWrite: true });
+  });
+  it("adds the owner when a resolver is given", () => {
+    const [row] = toMcpConnectionRows([conn], () => ({ name: "Sara", email: "s@x.ee" }));
+    expect(row.owner).toEqual({ name: "Sara", email: "s@x.ee" });
   });
 });

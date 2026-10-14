@@ -64,6 +64,42 @@ export function toMcpKeyRows<T extends DbKey>(
     );
 }
 
+/** Connected OAuth apps (claude.ai connector) -- the only fields that reach client components. */
+export type McpConnectionRow = {
+  id: string;
+  appName: string;
+  canWrite: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+  /** Owner -- present only on the admin list. */
+  owner?: { name: string; email: string };
+};
+
+type DbConnection = {
+  id: string;
+  client_name: string;
+  can_write: boolean;
+  created_at: string;
+  last_used_at: string | null;
+};
+
+/** Field-by-field allowlist; newest first. Callers pass active (non-revoked) rows only. */
+export function toMcpConnectionRows<T extends DbConnection>(
+  rows: T[],
+  owner?: (row: T) => McpConnectionRow["owner"],
+): McpConnectionRow[] {
+  return rows
+    .map((c) => ({
+      id: c.id,
+      appName: c.client_name,
+      canWrite: c.can_write,
+      createdAt: c.created_at,
+      lastUsedAt: c.last_used_at,
+      ...(owner ? { owner: owner(c) } : {}),
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 export function mcpEndpoint(origin: string): string {
   return `${origin.replace(/\/+$/, "")}/api/mcp`;
 }

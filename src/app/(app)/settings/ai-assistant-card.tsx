@@ -4,9 +4,10 @@ import { useId, useState, useTransition } from "react";
 import { CheckIcon, CopyIcon, KeyRoundIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 import { createMcpKeyAction, revokeMcpKeyAction } from "@/app/actions/mcp-keys";
+import { disconnectConnectionAction } from "@/app/actions/mcp-connections";
 import { createMcpKeySchema, MCP_KEY_EXPIRY_DAYS, type McpKeyExpiryDays } from "@/lib/validation/mcp";
 import {
-  claudeCodeCommand, claudeDesktopConfig, type McpKeyRow, type McpKeyStatus,
+  claudeCodeCommand, claudeDesktopConfig, type McpConnectionRow, type McpKeyRow, type McpKeyStatus,
 } from "@/lib/mcp/key-display";
 import { formatDateEt } from "@/lib/sales/date-format";
 import { ACCESS_ITEMS, accessLabel } from "@/lib/mcp/access-labels";
@@ -33,7 +34,7 @@ import {
 
 /** Settings → AI assistant: create a personal MCP access key (shown once) and manage your keys.
  * `keys` is the allowlisted McpKeyRow shape built server-side in page.tsx -- never key_hash. */
-export function AiAssistantCard({ keys }: { keys: McpKeyRow[] }) {
+export function AiAssistantCard({ keys, connections }: { keys: McpKeyRow[]; connections: McpConnectionRow[] }) {
   return (
     <Card>
       <CardHeader>
@@ -43,10 +44,89 @@ export function AiAssistantCard({ keys }: { keys: McpKeyRow[] }) {
           <CreateKeyDialog />
         </CardAction>
       </CardHeader>
-      <CardContent>
+      <CardContent className="grid gap-6">
         <McpKeysTable keys={keys} emptyText="No keys yet." />
+        {connections.length > 0 && (
+          <div className="grid gap-2">
+            <h3 className="text-sm font-medium">Connected apps</h3>
+            <McpConnectionsTable connections={connections} />
+          </div>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Shared by Settings (own connections, with Disconnect) and User access (all, read-only). */
+export function McpConnectionsTable({
+  connections,
+  showOwner = false,
+}: {
+  connections: McpConnectionRow[];
+  showOwner?: boolean;
+}) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          {showOwner && <TableHead>User</TableHead>}
+          <TableHead>App</TableHead>
+          <TableHead>Access</TableHead>
+          <TableHead>Connected</TableHead>
+          <TableHead>Last used</TableHead>
+          {!showOwner && (
+            <TableHead className="w-0">
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          )}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {connections.map((c) => (
+          <TableRow key={c.id}>
+            {showOwner && (
+              <TableCell>
+                <div className="font-medium">{c.owner?.name ?? "—"}</div>
+                <div className="text-xs text-muted-foreground">{c.owner?.email}</div>
+              </TableCell>
+            )}
+            <TableCell className="max-w-48 truncate font-medium" title={c.appName}>
+              {c.appName}
+            </TableCell>
+            <TableCell className="whitespace-nowrap">{accessLabel(c.canWrite)}</TableCell>
+            <TableCell className="tabular-nums">{formatDateEt(c.createdAt)}</TableCell>
+            <TableCell className="tabular-nums">{c.lastUsedAt ? formatDateEt(c.lastUsedAt) : "Never"}</TableCell>
+            {!showOwner && (
+              <TableCell className="text-right">
+                <DisconnectButton connection={c} />
+              </TableCell>
+            )}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function DisconnectButton({ connection }: { connection: McpConnectionRow }) {
+  return (
+    <ConfirmDialog
+      trigger={<Button variant="ghost" size="sm" className={DESTRUCTIVE_ACTION_CLASS} />}
+      triggerLabel="Disconnect"
+      title={`Disconnect ${connection.appName}?`}
+      description="It stops working immediately. You can connect it again from Claude."
+      confirmLabel="Disconnect"
+      pendingLabel="Disconnecting…"
+      onConfirm={async () => {
+        try {
+          const result = await disconnectConnectionAction(connection.id);
+          if ("success" in result) toast.success("Disconnected");
+          return result;
+        } catch {
+          return { error: "Could not disconnect. Try again." };
+        }
+      }}
+    />
   );
 }
 
