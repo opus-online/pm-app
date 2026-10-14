@@ -8,6 +8,16 @@ export type GateInput = {
 
 const PUBLIC_PREFIXES = ["/login", "/signup", "/auth"];
 
+const OAUTH_RESOURCE_METADATA = "/.well-known/oauth-protected-resource";
+
+/** Paths that authenticate on their own (Bearer credential) or are public discovery documents:
+ * the middleware never touches the session or redirects to /login for them. */
+export function isSessionlessPath(pathname: string): boolean {
+  return pathname === "/api/mcp"
+    || pathname === OAUTH_RESOURCE_METADATA
+    || pathname.startsWith(`${OAUTH_RESOURCE_METADATA}/`);
+}
+
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`)

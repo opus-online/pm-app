@@ -17,3 +17,16 @@ describe("oauth metadata", () => {
     expect(authServerUrl("http://127.0.0.1:54321")).toBe("http://127.0.0.1:54321/auth/v1");
   });
 });
+
+describe("isSessionlessPath", async () => {
+  const { isSessionlessPath } = await import("@/lib/auth/gate");
+  it("skips the session for the MCP endpoint and OAuth discovery only", () => {
+    expect(isSessionlessPath("/api/mcp")).toBe(true);
+    expect(isSessionlessPath("/.well-known/oauth-protected-resource")).toBe(true);
+    expect(isSessionlessPath("/.well-known/oauth-protected-resource/api/mcp")).toBe(true);
+    expect(isSessionlessPath("/api/mcp/x")).toBe(false);
+    expect(isSessionlessPath("/.well-known/oauth-protected-resourcex")).toBe(false);
+    expect(isSessionlessPath("/oauth/consent")).toBe(false);
+    expect(isSessionlessPath("/dashboard")).toBe(false);
+  });
+});
