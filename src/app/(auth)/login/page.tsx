@@ -13,9 +13,9 @@ const SHOW_MICROSOFT_SIGN_IN = false;
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, next } = await searchParams;
   return (
     <Card>
       <CardHeader>
@@ -45,7 +45,7 @@ export default async function LoginPage({
             </div>
           </>
         )}
-        <LoginForm />
+        <LoginForm next={next} />
         <p className="text-center text-sm text-muted-foreground">
           No account?{" "}
           <Link href="/signup" className="underline underline-offset-4">

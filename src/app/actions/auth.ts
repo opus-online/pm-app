@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { writeAudit } from "@/lib/audit";
+import { safeNextPath } from "@/lib/auth/gate";
 import {
   loginSchema,
   signupSchema,
@@ -10,7 +11,7 @@ import {
   type SignupInput,
 } from "@/lib/validation/auth";
 
-export async function signInAction(input: LoginInput) {
+export async function signInAction(input: LoginInput, next?: string) {
   const parsed = loginSchema.safeParse(input);
   if (!parsed.success) return { error: "Invalid email or password." };
 
@@ -31,7 +32,9 @@ export async function signInAction(input: LoginInput) {
     actorId: data.user.id,
     actorEmail: data.user.email,
   });
-  redirect("/dashboard"); // middleware reroutes pending/disabled users
+  // `next` only ever returns to the claude.ai connector consent page (safeNextPath);
+  // middleware reroutes pending/disabled users.
+  redirect(safeNextPath(next) ?? "/dashboard");
 }
 
 export async function signUpAction(input: SignupInput) {

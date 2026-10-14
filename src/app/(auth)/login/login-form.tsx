@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/form";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const form = useForm<LoginInput>({
@@ -23,7 +23,7 @@ export function LoginForm() {
   function onSubmit(values: LoginInput) {
     setServerError(null);
     startTransition(async () => {
-      const result = await signInAction(values);
+      const result = await signInAction(values, next);
       if (result?.error) setServerError(result.error);
     });
   }

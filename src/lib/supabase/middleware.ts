@@ -74,6 +74,7 @@ export async function updateSession(request: NextRequest) {
 
   const target = decideRedirect({
     pathname: request.nextUrl.pathname,
+    search: request.nextUrl.search,
     isAuthenticated: !!user,
     status,
   });

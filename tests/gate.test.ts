@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { decideRedirect } from "@/lib/auth/gate";
+import { decideRedirect, safeNextPath } from "@/lib/auth/gate";
 
 const anon = { isAuthenticated: false, status: null } as const;
 const pending = { isAuthenticated: true, status: "pending" } as const;
@@ -69,5 +69,36 @@ describe("decideRedirect", () => {
 
   it("lets active users through unknown protected-looking paths", () => {
     expect(decideRedirect({ pathname: "/loginfoo", ...active })).toBeNull();
+  });
+});
+
+describe("safeNextPath", () => {
+  it("allows only the OAuth consent page, same-origin", () => {
+    expect(safeNextPath("/oauth/consent?authorization_id=abc")).toBe("/oauth/consent?authorization_id=abc");
+    for (const bad of [
+      null, "", "/dashboard", "//evil.com/oauth/consent", "https://evil.com/oauth/consent",
+      "/oauth/consent/../dashboard", "/\evil.com", "oauth/consent", "/oauth/consentx",
+    ]) {
+      expect(safeNextPath(bad)).toBeNull();
+    }
+  });
+});
+
+describe("decideRedirect with consent", () => {
+  it("sends logged-out consent visits to login with next", () => {
+    expect(decideRedirect({ pathname: "/oauth/consent", search: "?authorization_id=abc", isAuthenticated: false, status: null }))
+      .toBe("/login?next=%2Foauth%2Fconsent%3Fauthorization_id%3Dabc");
+  });
+  it("other logged-out visits still go to plain /login", () => {
+    expect(decideRedirect({ pathname: "/dashboard", search: "?x=1", isAuthenticated: false, status: null })).toBe("/login");
+  });
+  it("an active user on /login with a safe next goes there, otherwise dashboard", () => {
+    expect(decideRedirect({ pathname: "/login", search: "?next=%2Foauth%2Fconsent%3Fauthorization_id%3Dabc", isAuthenticated: true, status: "active" }))
+      .toBe("/oauth/consent?authorization_id=abc");
+    expect(decideRedirect({ pathname: "/login", search: "?next=%2F%2Fevil.com", isAuthenticated: true, status: "active" }))
+      .toBe("/dashboard");
+  });
+  it("active users may open the consent page", () => {
+    expect(decideRedirect({ pathname: "/oauth/consent", search: "?authorization_id=abc", isAuthenticated: true, status: "active" })).toBeNull();
   });
 });
