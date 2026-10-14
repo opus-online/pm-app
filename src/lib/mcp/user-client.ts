@@ -25,3 +25,16 @@ export async function createUserScopedClient(userId: string) {
     }
   );
 }
+
+/** A supabase-js client acting with a Supabase-issued OAuth access token (claude.ai connector).
+ * The token already identifies the user, so RLS applies exactly as for keys -- nothing minted. */
+export function createTokenClient(accessToken: string) {
+  return createSupabaseClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    }
+  );
+}

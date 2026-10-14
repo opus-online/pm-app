@@ -18,9 +18,12 @@ export type ToolAuditEntry = {
 export type ToolContext = {
   supabase: SupabaseClient<Database>;
   userId: string;
+  /** mcp_keys.id or mcp_connections.id -- the rate-limit counter key. */
   keyId: string;
   /** The key's access level; runTool refuses write tools when false. */
   canWrite: boolean;
+  /** Which credential this call came in with -- key (pmk_) or oauth (claude.ai connector). */
+  via: "key" | "oauth";
   /** Writes an audit_logs row (service role, inside writeAudit -- the one allowed audit use). */
   audit: (entry: ToolAuditEntry) => Promise<void>;
 };

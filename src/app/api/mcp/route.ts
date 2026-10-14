@@ -1,12 +1,19 @@
+import { getPublicOrigin } from "mcp-handler";
 import { authenticateRequest, enforceRequestCeiling, jsonError } from "@/lib/mcp/auth";
-import { buildMcpHandler, bumpRequests, resolveKeyHash } from "@/lib/mcp/server";
+import { resourceMetadataUrl } from "@/lib/mcp/oauth-metadata";
+import { buildMcpHandler, bumpRequests, resolveKeyHash, resolveOAuthToken } from "@/lib/mcp/server";
 
-// Streamable HTTP MCP endpoint (stateless). Auth runs HERE, before anything MCP-related:
-// no valid Bearer key -> 401 JSON and no MCP server is even constructed; over the per-key
-// request ceiling -> 429 JSON. The session middleware skips exactly /api/mcp
-// (src/middleware.ts), so an unauthenticated call gets this 401, not a redirect.
+// Streamable HTTP MCP endpoint (stateless). Auth runs HERE, before anything MCP-related: a Bearer
+// `pmk_` key or a Supabase OAuth access token (claude.ai connector). No valid credential -> 401
+// JSON with the RFC 9728 `WWW-Authenticate` challenge (how claude.ai finds the login) and no MCP
+// server is even constructed; over the per-credential request ceiling -> 429 JSON. The session
+// middleware skips exactly /api/mcp (src/middleware.ts), so an unauthenticated call gets this
+// 401, not a redirect.
 async function handle(req: Request): Promise<Response> {
-  const auth = await authenticateRequest(req, resolveKeyHash);
+  const auth = await authenticateRequest(req, resolveKeyHash, {
+    resolveOAuth: resolveOAuthToken,
+    resourceMetadataUrl: resourceMetadataUrl(getPublicOrigin(req)),
+  });
   if (auth instanceof Response) return auth;
 
   const limited = await enforceRequestCeiling(auth, bumpRequests);

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { authenticateRequest, enforceRequestCeiling, extractBearerKey } from "@/lib/mcp/auth";
+import {
+  authenticateRequest, enforceRequestCeiling, extractBearerCredential, extractBearerKey, oauthIdentity,
+} from "@/lib/mcp/auth";
 import { generateKey, hashKey } from "@/lib/mcp/keys";
 import { RATE_LIMIT_PER_MINUTE, REQUEST_CEILING_PER_MINUTE, isOverRequestCeiling, isRateLimited } from "@/lib/mcp/rate-limit";
 
@@ -61,7 +63,7 @@ describe("authenticateRequest", () => {
     const { key } = generateKey();
     const resolve = vi.fn().mockResolvedValue(ids);
     const res = await authenticateRequest(req(`Bearer ${key}`), resolve);
-    expect(res).toEqual(ids);
+    expect(res).toEqual({ ...ids, kind: "key" });
     expect(resolve).toHaveBeenCalledWith(hashKey(key));
     expect(resolve.mock.calls[0][0]).not.toContain(key);
   });
@@ -94,7 +96,7 @@ describe("isRateLimited", () => {
 describe("runTool rate limiting", async () => {
   const { runTool } = await import("@/lib/mcp/run-tool");
   const { ToolError } = await import("@/lib/mcp/types");
-  const ctx = { supabase: {} as never, audit: async () => {}, ...ids };
+  const ctx = { supabase: {} as never, audit: async () => {}, via: "key" as const, ...ids };
   const makeTool = (impl: () => Promise<string>) => ({
     name: "t", title: "t", description: "test tool", readOnly: true,
     inputSchema: {} as never, run: vi.fn(impl),
@@ -141,7 +143,7 @@ describe("read-only keys", async () => {
   const { runTool, READ_ONLY_KEY_MESSAGE } = await import("@/lib/mcp/run-tool");
   const { TOOLS, toolsForKey } = await import("@/lib/mcp/registry");
   const { mcpInstructions } = await import("@/lib/mcp/instructions");
-  const readOnlyCtx = { supabase: {} as never, audit: async () => {}, ...ids, canWrite: false };
+  const readOnlyCtx = { supabase: {} as never, audit: async () => {}, via: "key" as const, ...ids, canWrite: false };
 
   it("get only the read tools; write keys get every tool", () => {
     const visible = toolsForKey(false);
@@ -182,12 +184,12 @@ describe("request ceiling (all methods)", () => {
 
   it("enforceRequestCeiling: null under the ceiling, bumping the key's counter", async () => {
     const bump = vi.fn().mockResolvedValue(300);
-    expect(await enforceRequestCeiling(ids, bump)).toBeNull();
+    expect(await enforceRequestCeiling({ ...ids, kind: "key" }, bump)).toBeNull();
     expect(bump).toHaveBeenCalledWith(ids.keyId);
   });
 
   it("enforceRequestCeiling: HTTP 429 JSON with Retry-After over the ceiling", async () => {
-    const res = (await enforceRequestCeiling(ids, async () => 301))!;
+    const res = (await enforceRequestCeiling({ ...ids, kind: "key" }, async () => 301))!;
     expect(res.status).toBe(429);
     expect(res.headers.get("content-type")).toContain("application/json");
     expect(res.headers.get("retry-after")).toBe("60");
@@ -196,7 +198,70 @@ describe("request ceiling (all methods)", () => {
 
   it("enforceRequestCeiling: fails closed with 503 when the counter errors", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const res = (await enforceRequestCeiling(ids, async () => { throw new Error("db"); }))!;
+    const res = (await enforceRequestCeiling({ ...ids, kind: "key" }, async () => { throw new Error("db"); }))!;
+    spy.mockRestore();
+    expect(res.status).toBe(503);
+  });
+});
+
+describe("OAuth credentials", () => {
+  const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln";
+
+  it("tells keys and JWTs apart and rejects junk", () => {
+    const { key } = generateKey();
+    expect(extractBearerCredential(`Bearer ${key}`)).toEqual({ kind: "key", key });
+    expect(extractBearerCredential(`Bearer ${jwt}`)).toEqual({ kind: "oauth", token: jwt });
+    expect(extractBearerCredential("Bearer nope")).toBeNull();
+    expect(extractBearerCredential("Basic abc")).toBeNull();
+    expect(extractBearerCredential(null)).toBeNull();
+  });
+
+  it("requires a client_id claim (browser session tokens are not connections)", () => {
+    const sub = "11111111-1111-4111-8111-111111111111";
+    expect(oauthIdentity({ sub, client_id: "c1" })).toEqual({ userId: sub, clientId: "c1" });
+    expect(oauthIdentity({ sub })).toBeNull();
+    expect(oauthIdentity({ sub, client_id: "" })).toBeNull();
+    expect(oauthIdentity({ sub: "not-a-uuid", client_id: "c1" })).toBeNull();
+    expect(oauthIdentity(null)).toBeNull();
+  });
+
+  it("resolves a JWT through the OAuth resolver and keeps the token", async () => {
+    const resolveKey = vi.fn();
+    const resolveOAuth = vi.fn().mockResolvedValue({ ...ids, canWrite: false });
+    const res = await authenticateRequest(req(`Bearer ${jwt}`), resolveKey, { resolveOAuth });
+    expect(res).toEqual({ ...ids, canWrite: false, kind: "oauth", accessToken: jwt });
+    expect(resolveOAuth).toHaveBeenCalledWith(jwt);
+    expect(resolveKey).not.toHaveBeenCalled();
+  });
+
+  it("401 with a WWW-Authenticate challenge when the OAuth token doesn't resolve (e.g. disconnected)", async () => {
+    const res = await authenticateRequest(req(`Bearer ${jwt}`), vi.fn(), {
+      resolveOAuth: vi.fn().mockResolvedValue(null),
+      resourceMetadataUrl: "https://pm.example.com/.well-known/oauth-protected-resource/api/mcp",
+    });
+    expect(res).toBeInstanceOf(Response);
+    expect((res as Response).status).toBe(401);
+    expect((res as Response).headers.get("www-authenticate")).toBe(
+      'Bearer resource_metadata="https://pm.example.com/.well-known/oauth-protected-resource/api/mcp"',
+    );
+  });
+
+  it("401 challenge also when no header is sent", async () => {
+    const res = (await authenticateRequest(req(), vi.fn(), { resourceMetadataUrl: "https://x/m" })) as Response;
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toBe('Bearer resource_metadata="https://x/m"');
+  });
+
+  it("JWT without an OAuth resolver configured is a 401, never a pass-through", async () => {
+    const res = (await authenticateRequest(req(`Bearer ${jwt}`), vi.fn())) as Response;
+    expect(res.status).toBe(401);
+  });
+
+  it("503 when the OAuth resolver throws", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = (await authenticateRequest(req(`Bearer ${jwt}`), vi.fn(), {
+      resolveOAuth: vi.fn().mockRejectedValue(new Error("auth down")),
+    })) as Response;
     spy.mockRestore();
     expect(res.status).toBe(503);
   });

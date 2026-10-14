@@ -58,6 +58,29 @@ async function namesById(
 
 // ---------------------------------------------------------------------------------------------
 
+/** The credential this call came in with: a pmk_ key (label, prefix, expiry) or a claude.ai
+ * connection (app name, since). Shaped like a supabase result so whoami checks one error path. */
+async function describeCredential(ctx: ToolContext): Promise<{ data: Record<string, string | null> | null; error: { message: string } | null }> {
+  const access = ctx.canWrite ? "read and write" : "read only";
+  if (ctx.via === "oauth") {
+    const { data, error } = await ctx.supabase
+      .from("mcp_connections")
+      .select("client_name, created_at")
+      .eq("id", ctx.keyId)
+      .maybeSingle();
+    return { data: data ? { connected_app: data.client_name, access, since: fmtDate(data.created_at) } : null, error };
+  }
+  const { data, error } = await ctx.supabase
+    .from("mcp_keys")
+    .select("label, key_prefix, expires_at")
+    .eq("id", ctx.keyId)
+    .maybeSingle();
+  return {
+    data: data ? { label: data.label, prefix: data.key_prefix, access, expires: fmtDate(data.expires_at) } : null,
+    error,
+  };
+}
+
 const whoami = defineTool({
   name: "whoami",
   title: "Who am I",
@@ -65,13 +88,13 @@ const whoami = defineTool({
   inputSchema: z.object({}),
   readOnly: true,
   handler: async (_input, ctx) => {
-    const { supabase, userId, keyId } = ctx;
+    const { supabase, userId } = ctx;
     const perms = ["view_sales", "manage_sales", "view_budget", "create_project", "log_time"] as const;
     const [profileRes, rolesRes, personRes, keyRes, ...permRes] = await Promise.all([
       supabase.from("user_profiles").select("full_name, email, status").eq("id", userId).maybeSingle(),
       supabase.from("user_roles").select("role_key").eq("user_id", userId),
       supabase.from("people").select("id, full_name, role_title").eq("user_id", userId).maybeSingle(),
-      supabase.from("mcp_keys").select("label, key_prefix, expires_at").eq("id", keyId).maybeSingle(),
+      describeCredential(ctx),
       ...perms.map((perm) => supabase.rpc("has_permission", { uid: userId, perm })),
     ]);
     check(profileRes.error, "your profile");
@@ -86,14 +109,7 @@ const whoami = defineTool({
         person: personRes.data
           ? compact({ id: personRes.data.id, name: personRes.data.full_name, role: personRes.data.role_title, url: appUrl(`/people/${personRes.data.id}`) })
           : null,
-        key: keyRes.data
-          ? {
-              label: keyRes.data.label,
-              prefix: keyRes.data.key_prefix,
-              access: ctx.canWrite ? "read and write" : "read only",
-              expires: fmtDate(keyRes.data.expires_at),
-            }
-          : null,
+        key: keyRes.data,
         capabilities,
         today: fmtDate(appDayKey(new Date())),
         app: appUrl("/dashboard"),

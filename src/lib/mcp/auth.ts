@@ -1,29 +1,59 @@
-// Bearer-key authentication for the MCP endpoint. Pure (no "server-only", no env reads): the
-// service-role key lookup is injected as `resolve`, so this module is unit-tested directly
-// (tests/mcp-auth.test.ts). The real resolver (service-role `mcp_resolve_key` RPC) is wired in
-// ./server.ts. Spec: docs/superpowers/specs/2026-10-09-ai-assistant-mcp-design.md (Identity).
+// Bearer authentication for the MCP endpoint: a `pmk_` access key, or a Supabase-issued OAuth
+// access token (claude.ai connector). Pure (no "server-only", no env reads): both lookups are
+// injected, so this module is unit-tested directly (tests/mcp-auth.test.ts). The real resolvers
+// (service-role `mcp_resolve_key` / `mcp_resolve_connection`) are wired in ./server.ts.
+// Specs: docs/superpowers/specs/2026-10-09-ai-assistant-mcp-design.md (Identity),
+// docs/superpowers/specs/2026-10-14-claude-connector-oauth-design.md.
+import { z } from "zod";
 import { hashKey } from "@/lib/mcp/keys";
 import { isOverRequestCeiling } from "@/lib/mcp/rate-limit";
 
-/** `canWrite` false = read-only key: only readOnly tools are exposed (see ./server.ts). */
-export type McpAuth = { userId: string; keyId: string; canWrite: boolean };
+/** A resolved credential. `keyId` is mcp_keys.id for keys, mcp_connections.id for OAuth
+ * connections (also the rate-limit counter key). */
+export type ResolvedCredential = { userId: string; keyId: string; canWrite: boolean };
+
+/** `canWrite` false = read-only: only readOnly tools are exposed (see ./server.ts). */
+export type McpAuth = ResolvedCredential & ({ kind: "key" } | { kind: "oauth"; accessToken: string });
 
 /** Looks a key hash up; returns null when the key is unknown, revoked, expired or its user is not
  * active (mcp_resolve_key returns no row in all of those cases -- deliberately indistinguishable). */
-export type KeyResolver = (keyHash: string) => Promise<McpAuth | null>;
+export type KeyResolver = (keyHash: string) => Promise<ResolvedCredential | null>;
+
+/** Verifies a Supabase OAuth access token and looks up its connection; null when the token is
+ * invalid/expired, not an OAuth token, or the connection is gone. Throws on infrastructure errors. */
+export type OAuthResolver = (token: string) => Promise<ResolvedCredential | null>;
 
 /** `pmk_` + 32 random bytes base64url (43 chars, unpadded) -- see ./keys.ts generateKey. */
 const KEY_PATTERN = /^pmk_[A-Za-z0-9_-]{43}$/;
+const JWT_PATTERN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 
-/** Extracts the key from an `Authorization: Bearer <key>` header. Returns null for a missing
- * header, a non-Bearer scheme, extra tokens, or a value that isn't shaped like one of our keys
- * (rejected before any DB round trip). */
-export function extractBearerKey(header: string | null): string | null {
+export type BearerCredential = { kind: "key"; key: string } | { kind: "oauth"; token: string };
+
+/** Parses `Authorization: Bearer <pmk_ key | JWT>`. Returns null for a missing header, a
+ * non-Bearer scheme, extra tokens, or a value shaped like neither (rejected before any lookup). */
+export function extractBearerCredential(header: string | null): BearerCredential | null {
   if (!header) return null;
   const match = /^Bearer\s+(\S+)\s*$/i.exec(header.trim());
   if (!match) return null;
-  const key = match[1];
-  return KEY_PATTERN.test(key) ? key : null;
+  const value = match[1];
+  if (KEY_PATTERN.test(value)) return { kind: "key", key: value };
+  if (JWT_PATTERN.test(value)) return { kind: "oauth", token: value };
+  return null;
+}
+
+/** The `pmk_` key from the header, or null. */
+export function extractBearerKey(header: string | null): string | null {
+  const credential = extractBearerCredential(header);
+  return credential?.kind === "key" ? credential.key : null;
+}
+
+const oauthClaims = z.object({ sub: z.uuid(), client_id: z.string().min(1) });
+
+/** An OAuth access token carries `client_id`; a normal browser session token doesn't and is
+ * refused here, so a stolen session cookie can't be replayed against /api/mcp. */
+export function oauthIdentity(claims: unknown): { userId: string; clientId: string } | null {
+  const parsed = oauthClaims.safeParse(claims);
+  return parsed.success ? { userId: parsed.data.sub, clientId: parsed.data.client_id } : null;
 }
 
 export function jsonError(status: number, error: string, message: string, headers?: HeadersInit): Response {
@@ -33,36 +63,55 @@ export function jsonError(status: number, error: string, message: string, header
   });
 }
 
-/** 401 JSON only -- no `WWW-Authenticate` header. This endpoint isn't part of an HTTP Basic/Bearer
- * challenge-response flow or OAuth discovery (there's no such flow here, just a static API key),
- * so the header would be misleading overhead rather than a spec requirement. */
-export function unauthorized(message: string): Response {
-  return jsonError(401, "unauthorized", message);
+/** 401 JSON. With `resourceMetadataUrl`, adds the RFC 9728 `WWW-Authenticate` challenge MCP
+ * clients (claude.ai) use to discover the OAuth login. */
+export function unauthorized(message: string, resourceMetadataUrl?: string): Response {
+  return jsonError(
+    401,
+    "unauthorized",
+    message,
+    resourceMetadataUrl ? { "www-authenticate": `Bearer resource_metadata="${resourceMetadataUrl}"` } : undefined,
+  );
 }
 
 /**
- * Authenticates an MCP request. Returns the key's `{ userId, keyId }` or a ready-to-send Response:
- * 401 JSON for a missing/malformed/unknown/revoked/expired key (or a disabled/pending user), 503
- * JSON when the lookup itself fails (fail closed -- never fall through to an anonymous call).
+ * Authenticates an MCP request. Returns the credential's identity or a ready-to-send Response:
+ * 401 JSON (with the OAuth challenge when `resourceMetadataUrl` is given) for a missing/malformed/
+ * unknown/revoked/expired credential or a disabled/pending user, 503 JSON when the lookup itself
+ * fails (fail closed -- never fall through to an anonymous call). A JWT is only accepted when an
+ * OAuth resolver is configured.
  */
-export async function authenticateRequest(req: Request, resolve: KeyResolver): Promise<McpAuth | Response> {
-  const key = extractBearerKey(req.headers.get("authorization"));
-  if (!key) {
-    return unauthorized("Missing or malformed access key. Send 'Authorization: Bearer <key>'.");
+export async function authenticateRequest(
+  req: Request,
+  resolveKey: KeyResolver,
+  opts: { resolveOAuth?: OAuthResolver; resourceMetadataUrl?: string } = {},
+): Promise<McpAuth | Response> {
+  const credential = extractBearerCredential(req.headers.get("authorization"));
+  if (!credential || (credential.kind === "oauth" && !opts.resolveOAuth)) {
+    return unauthorized("Missing or malformed access key. Send 'Authorization: Bearer <key>'.", opts.resourceMetadataUrl);
   }
 
-  let resolved: McpAuth | null;
+  let resolved: ResolvedCredential | null;
   try {
-    resolved = await resolve(hashKey(key));
+    resolved = credential.kind === "key"
+      ? await resolveKey(hashKey(credential.key))
+      : await opts.resolveOAuth!(credential.token);
   } catch (err) {
-    console.error("mcp key resolve failed:", err instanceof Error ? err.message : err);
+    console.error("mcp credential resolve failed:", err instanceof Error ? err.message : err);
     return jsonError(503, "unavailable", "Could not verify the access key right now. Try again shortly.");
   }
 
   if (!resolved) {
-    return unauthorized("Invalid or revoked key — create a new one in Settings → AI assistant.");
+    return unauthorized(
+      credential.kind === "key"
+        ? "Invalid or revoked key — create a new one in Settings → AI assistant."
+        : "This connection is no longer valid — reconnect PM app in Claude.",
+      opts.resourceMetadataUrl,
+    );
   }
-  return resolved;
+  return credential.kind === "key"
+    ? { ...resolved, kind: "key" }
+    : { ...resolved, kind: "oauth", accessToken: credential.token };
 }
 
 /** Increments and returns this minute's authenticated-request count for the key. */
