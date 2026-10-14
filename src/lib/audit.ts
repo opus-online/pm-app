@@ -65,7 +65,9 @@ export type AuditAction =
   | "offer.deleted"
   | "company.saved"
   | "mcp_key.created"
-  | "mcp_key.revoked";
+  | "mcp_key.revoked"
+  | "mcp_connection.created"
+  | "mcp_connection.revoked";
 
 export type AuditEntry = {
   action: AuditAction;

@@ -9,6 +9,7 @@ import {
   claudeCodeCommand, claudeDesktopConfig, type McpKeyRow, type McpKeyStatus,
 } from "@/lib/mcp/key-display";
 import { formatDateEt } from "@/lib/sales/date-format";
+import { ACCESS_ITEMS, accessLabel } from "@/lib/mcp/access-labels";
 import { DESTRUCTIVE_ACTION_CLASS } from "@/lib/action-styles";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -109,7 +110,7 @@ export function McpKeysTable({
               </div>
               <code className="font-mono text-xs text-muted-foreground">{k.prefix}…</code>
             </TableCell>
-            <TableCell className="whitespace-nowrap">{ACCESS_LABEL[String(k.canWrite) as "true" | "false"]}</TableCell>
+            <TableCell className="whitespace-nowrap">{accessLabel(k.canWrite)}</TableCell>
             <TableCell className="tabular-nums">{formatDateEt(k.createdAt)}</TableCell>
             <TableCell className="tabular-nums">{formatDateEt(k.expiresAt)}</TableCell>
             <TableCell className="tabular-nums">
@@ -152,12 +153,6 @@ function RevokeKeyButton({ keyRow, showOwner }: { keyRow: McpKeyRow; showOwner: 
 }
 
 const EXPIRY_ITEMS = MCP_KEY_EXPIRY_DAYS.map((d) => ({ value: String(d), label: `${d} days` }));
-
-const ACCESS_LABEL = { false: "Read only", true: "Read and write" } as const;
-const ACCESS_ITEMS = [
-  { value: "false", label: ACCESS_LABEL.false },
-  { value: "true", label: ACCESS_LABEL.true },
-];
 
 function CreateKeyDialog() {
   const [open, setOpen] = useState(false);
