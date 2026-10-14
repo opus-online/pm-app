@@ -859,6 +859,57 @@ export type Database = {
         }
         Relationships: []
       }
+      mcp_connections: {
+        Row: {
+          can_write: boolean
+          client_id: string
+          client_name: string
+          created_at: string
+          id: string
+          last_used_at: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          user_id: string
+        }
+        Insert: {
+          can_write?: boolean
+          client_id: string
+          client_name: string
+          created_at?: string
+          id?: string
+          last_used_at?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          user_id: string
+        }
+        Update: {
+          can_write?: boolean
+          client_id?: string
+          client_name?: string
+          created_at?: string
+          id?: string
+          last_used_at?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mcp_connections_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mcp_connections_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mcp_key_usage: {
         Row: {
           calls: number
@@ -878,15 +929,7 @@ export type Database = {
           kind?: string
           minute?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "mcp_key_usage_key_id_fkey"
-            columns: ["key_id"]
-            isOneToOne: false
-            referencedRelation: "mcp_keys"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       mcp_keys: {
         Row: {
@@ -2416,6 +2459,22 @@ export type Database = {
       }
       mcp_bump_requests: { Args: { p_key_id: string }; Returns: number }
       mcp_bump_usage: { Args: { p_key_id: string }; Returns: number }
+      mcp_connect: {
+        Args: {
+          p_can_write: boolean
+          p_client_id: string
+          p_client_name: string
+        }
+        Returns: string
+      }
+      mcp_disconnect: { Args: { p_id: string }; Returns: string }
+      mcp_resolve_connection: {
+        Args: { p_client: string; p_user: string }
+        Returns: {
+          can_write: boolean
+          connection_id: string
+        }[]
+      }
       mcp_resolve_key: {
         Args: { p_hash: string }
         Returns: {
