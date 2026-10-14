@@ -141,3 +141,35 @@ Admin User access page lists all connections next to all keys, with Disconnect.
   → token exchange with PKCE, call `/api/mcp` with the token (read-only vs write tool lists),
   disconnect → 401.
 - Prod: real claude.ai connector after deploy.
+
+## Implementation notes (2026-10-14)
+
+Deliberate deviations from the sections above:
+- `mcp_key_usage.key_id` keeps its name (FK dropped; holds a key id **or** a connection id)
+  instead of a rename to `credential_id`.
+- Connections are written only through two SECURITY DEFINER RPCs (`mcp_connect`,
+  `mcp_disconnect`); `authenticated` has column-scoped SELECT and no write grants.
+- **No per-connection admin Disconnect.** Supabase silently re-approves an already-consented
+  client, so an admin-revoked row would leave the user in a reconnect loop. Admins see all
+  connections (read-only); to cut someone off they disable the account. Users disconnect their
+  own (row revoked + Supabase grant revoked → next connect asks consent again; verified).
+
+Verified locally end to end (DCR → authorize → login detour → consent → token → `/api/mcp`):
+read-only = 14 tools; read and write = 26 tools (all writes `destructiveHint`); Disconnect →
+immediate 401 with the `WWW-Authenticate` challenge; a plain browser-session JWT → 401.
+Local Supabase signs these tokens ES256; `getClaims` also handles HS256 (prod's legacy secret).
+Local Supabase serves its OAuth metadata at `/.well-known/oauth-authorization-server` and
+`/auth/v1/.well-known/oauth-authorization-server` (not the RFC 8414 path-inserted form) — MCP
+clients try those fallbacks; confirm on prod during go-live.
+
+## Go-live checklist
+
+1. `npx supabase db push` (migration `20261014000001_mcp_connections`).
+2. Supabase dashboard → Authentication → OAuth Server: **enable**, Authorization Path
+   `/oauth/consent`, **allow dynamic client registration**. (Site URL is already the prod URL.)
+3. Push `master` (Vercel deploys).
+4. claude.ai → Settings → Connectors → Add custom connector →
+   `https://pm-app-eight-alpha.vercel.app/api/mcp` → Connect → log in → Allow.
+5. If claude.ai's token step fails with an ID-token/`openid` error: switch the Supabase project to
+   asymmetric JWT signing keys (Settings → JWT Keys) and keep the legacy secret active so `pmk_`
+   keys keep working.
