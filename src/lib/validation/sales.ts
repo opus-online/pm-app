@@ -4,8 +4,14 @@ import { DEAL_SOURCES, DEAL_STAGES, OFFER_STATUSES, ACTIVITY_KINDS } from "@/lib
 export const blankToNull = (v: unknown) => (typeof v === "string" && v.trim() === "" ? null : v);
 const text = (max: number) => z.preprocess(blankToNull, z.string().trim().max(max).nullable().optional().transform((v) => v ?? null));
 const email = z.preprocess(blankToNull, z.email("Enter a valid email").max(320).nullable().optional().transform((v) => v ?? null));
+/** "www.foxway.ee" -> "https://www.foxway.ee". Anything already carrying a scheme (http:, but also
+ * javascript:) is left alone for the protocol check to judge; "host:8080" is a port, not a scheme. */
+export function withHttps(v: string): string {
+  const t = v.trim();
+  return t === "" || /^[a-z][a-z0-9+.-]*:(?!\d)/i.test(t) ? t : `https://${t}`;
+}
 export const httpUrl = z.preprocess(
-  blankToNull,
+  (v) => blankToNull(typeof v === "string" ? withHttps(v) : v),
   z.url({ protocol: /^https?$/, error: "Enter a valid http(s) URL" }).max(2000).nullable().optional().transform((v) => v ?? null)
 );
 const isoDate = z.preprocess(blankToNull, z.iso.date().nullable().optional().transform((v) => v ?? null));
@@ -52,13 +58,19 @@ export const newLeadSchema = z
   .object({
     client_id: z.uuid().nullable(),
     company: companySchema.partial({ name: true }).optional(),
-    deal: dealFieldsSchema,
+    // Optional: a new company can be added to Sales before there's anything to sell it.
+    deal: dealFieldsSchema.optional(),
     contact: contactSchema.partial({ first_name: true }).optional(),
     step: newLeadStepSchema.optional(),
   })
   .refine((v) => v.client_id !== null || !!v.company?.name?.trim(), {
     path: ["company", "name"],
     message: "Pick a company or enter a name",
+  })
+  // Only a brand-new company may skip the deal: for an existing one the deal is the whole point.
+  .refine((v) => v.client_id === null || !!v.deal, {
+    path: ["deal", "title"],
+    message: "Title is required",
   });
 export const dealUpdateSchema = z
   .object({

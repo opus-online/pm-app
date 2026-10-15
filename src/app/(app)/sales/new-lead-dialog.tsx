@@ -58,7 +58,8 @@ function prune(values: LeadForm): NewLeadInput {
   return {
     client_id: mode === "existing" ? values.client_id : null,
     ...(mode === "new" ? { company: values.company } : {}),
-    deal: values.deal,
+    // A blank deal title means "just the company" -- no deal is sent or created.
+    ...(values.deal.title.trim() ? { deal: values.deal } : {}),
     ...(contactFilled ? { contact: values.contact } : {}),
     ...(values.step.body.trim()
       ? { step: { body: values.step.body, due_on: values.step.due_on, assignee_id: values.deal.owner_id } }
@@ -261,6 +262,11 @@ function NewLeadForm({
         return;
       }
       onDone();
+      if (!result.dealId) {
+        toast.success("Company created");
+        router.push(`/sales/companies/${result.clientId}`);
+        return;
+      }
       toast.success(noun === "deal" ? "Deal created" : "Lead created");
       router.push(`/sales/companies/${result.clientId}?deal=${result.dealId}`);
     });
@@ -343,7 +349,7 @@ function NewLeadForm({
               />
               <TextField form={form} name="company.phone" label="Phone" type="tel" />
               <TextField form={form} name="company.email" label="Email" type="email" />
-              <TextField form={form} name="company.website" label="Website" type="url" placeholder="https://" className="sm:col-span-2" />
+              <TextField form={form} name="company.website" label="Website" placeholder="www.example.ee" className="sm:col-span-2" />
             </div>
           )}
 

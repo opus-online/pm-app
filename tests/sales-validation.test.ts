@@ -19,6 +19,17 @@ describe("companySchema", () => {
     const r = companySchema.parse({ name: "A", reg_code: "", email: "", website: "" });
     expect(r).toMatchObject({ reg_code: null, email: null, website: null });
   });
+  it("adds https:// to a website typed without a scheme", () => {
+    expect(companySchema.parse({ name: "A", website: "www.foxway.ee" }).website).toBe("https://www.foxway.ee");
+    expect(companySchema.parse({ name: "A", website: " foxway.ee:8080/x " }).website).toBe("https://foxway.ee:8080/x");
+    expect(companySchema.parse({ name: "A", website: "http://foxway.ee" }).website).toBe("http://foxway.ee");
+  });
+});
+describe("newLeadSchema", () => {
+  it("allows a new company without a deal", () =>
+    expect(newLeadSchema.safeParse({ client_id: null, company: { name: "Foxway" } }).success).toBe(true));
+  it("still requires a deal for an existing company", () =>
+    expect(newLeadSchema.safeParse({ client_id: "11111111-1111-4111-8111-111111111111" }).success).toBe(false));
 });
 describe("dealUpdateSchema", () => {
   it("requires a lost reason when lost", () => {

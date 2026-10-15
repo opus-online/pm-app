@@ -63,7 +63,7 @@ export async function findCompanyByRegCodeAction(regCode: string): Promise<{ id:
 
 export async function createLeadAction(
   input: NewLeadInput
-): Promise<DuplicateError | { success: true; clientId: string; dealId: string }> {
+): Promise<DuplicateError | { success: true; clientId: string; dealId: string | null }> {
   const current = await requirePermission("manage_sales");
 
   // Stale new-company fields are dropped when attaching to an existing company, and an optional
@@ -85,7 +85,8 @@ export async function createLeadAction(
     // type doesn't reflect that nullability, hence the cast.
     p_client_id: client_id as never,
     p_company: (company ?? {}) as never,
-    p_deal: deal as never,
+    // No deal (a company added before there's anything to sell): create_lead skips the deal row.
+    p_deal: (deal ?? null) as never,
     p_contact: (contact?.first_name ? contact : null) as never,
     p_step: (step?.body ? step : null) as never,
   });
@@ -93,15 +94,17 @@ export async function createLeadAction(
     return { error: mapCreateLeadError(error) };
   }
 
-  const { client_id: clientId, deal_id: dealId } = data as { client_id: string; deal_id: string };
-  await writeAudit({
-    action: "deal.created",
-    actorId: current.user.id,
-    actorEmail: current.profile.email,
-    resourceType: "deal",
-    resourceId: dealId,
-    metadata: { client_id: clientId },
-  });
+  const { client_id: clientId, deal_id: dealId } = data as { client_id: string; deal_id: string | null };
+  if (dealId || !client_id) {
+    await writeAudit({
+      action: dealId ? "deal.created" : "client.created",
+      actorId: current.user.id,
+      actorEmail: current.profile.email,
+      resourceType: dealId ? "deal" : "client",
+      resourceId: dealId ?? clientId,
+      metadata: dealId ? { client_id: clientId } : { via: "sales" },
+    });
+  }
   revalidateSales(clientId);
   revalidatePath("/clients");
   revalidatePath(`/clients/${clientId}`);

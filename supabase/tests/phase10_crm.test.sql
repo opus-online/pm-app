@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(37);
+select plan(40);
 
 -- fixtures: admin, sales (sal), second sales user (sal2), pm (no sales)
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, encrypted_password, created_at, updated_at) values
@@ -100,6 +100,9 @@ select ok((public.create_lead(null,
   '{"name":"Lead Co","reg_code":"87654321"}'::jsonb,
   '{"title":"Website","source":"outbound","owner_id":"ac000000-0000-4000-8000-000000000002"}'::jsonb,
   '{"first_name":"Jaan","last_name":"Tamm"}'::jsonb) ->> 'deal_id') is not null, 'create_lead creates company+deal+contact');
+select is((public.create_lead(null, '{"name":"No Deal Co","website":"https://nodeal.ee"}'::jsonb, null, null) ->> 'deal_id'), null, 'create_lead without a deal returns no deal');
+select ok(exists(select 1 from public.clients c where c.name = 'No Deal Co' and not exists(select 1 from public.deals d where d.client_id = c.id)), 'create_lead without a deal creates only the company');
+select ok((public.create_lead(null, '{"name":"Blank Deal Co"}'::jsonb, '{"title":""}'::jsonb, null) ->> 'deal_id') is null, 'a blank deal title creates no deal');
 set local "request.jwt.claims" to '{"sub":"ac000000-0000-4000-8000-000000000003","role":"authenticated"}';
 select throws_ok($$ select public.create_lead(null,'{"name":"X"}'::jsonb,'{"title":"Y","owner_id":"ac000000-0000-4000-8000-000000000003"}'::jsonb,null) $$, null, null, 'create_lead requires manage_sales');
 reset role;

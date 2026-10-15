@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { blankToNull } from "@/lib/validation/sales";
+import { blankToNull, withHttps } from "@/lib/validation/sales";
 
 /** Blank/whitespace-only optional text collapses to null so the DB never stores "". */
 function nullableText(max = 4000) {
@@ -28,7 +28,7 @@ const nullableWebsite = z
   .max(2000)
   .optional()
   .nullable()
-  .transform((v) => (v && v.trim() !== "" ? v.trim() : null))
+  .transform((v) => (v && v.trim() !== "" ? withHttps(v) : null))
   .refine(
     (v) => !v || z.url({ protocol: /^https?$/ }).safeParse(v).success,
     "Enter a valid http(s) URL"

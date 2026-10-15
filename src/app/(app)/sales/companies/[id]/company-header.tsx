@@ -1,19 +1,12 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowUpRightIcon, ExternalLinkIcon } from "lucide-react";
-import { DotBadge } from "@/components/dot-badge";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { avatarTint } from "@/lib/avatar-tint";
 import { NEUTRAL_ACTION_CLASS } from "@/lib/action-styles";
 import { initials } from "../../../projects/types";
 import type { CompanyView } from "../../types";
 import { CompanyFormDialog } from "./company-form-dialog";
-
-const KIND_BADGE = {
-  prospect: { label: "Prospect", dot: "bg-amber-500", className: "bg-amber-500/10 text-amber-800 dark:text-amber-300" },
-  client: { label: "Client", dot: "bg-emerald-500", className: "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300" },
-} as const;
 
 const LINK = "transition-colors hover:text-foreground hover:underline underline-offset-3";
 
@@ -23,7 +16,6 @@ function displayHost(url: string) {
 }
 
 export function CompanyHeader({ company, canManage }: { company: CompanyView; canManage: boolean }) {
-  const badge = KIND_BADGE[company.kind];
   // Only what's known -- an all-dash line for a fresh prospect reads as broken, not as aligned.
   const meta: ReactNode[] = [];
   if (company.reg_code) meta.push(<span className="tabular-nums">{company.reg_code}</span>);
@@ -62,23 +54,7 @@ export function CompanyHeader({ company, canManage }: { company: CompanyView; ca
           {initials(company.name)}
         </span>
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-            <h1 className="text-2xl font-semibold">{company.name}</h1>
-            {company.kind === "prospect" ? (
-              <Tooltip>
-                <TooltipTrigger render={<span className="inline-flex" />}>
-                  <DotBadge dotClassName={badge.dot} className={badge.className}>
-                    {badge.label}
-                  </DotBadge>
-                </TooltipTrigger>
-                <TooltipContent>No project or won deal yet</TooltipContent>
-              </Tooltip>
-            ) : (
-              <DotBadge dotClassName={badge.dot} className={badge.className}>
-                {badge.label}
-              </DotBadge>
-            )}
-          </div>
+          <h1 className="text-2xl font-semibold">{company.name}</h1>
           {meta.length > 0 && (
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
               {meta.map((part, i) => (

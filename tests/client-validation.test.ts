@@ -91,6 +91,9 @@ describe("clientSchema", () => {
     expect(parsed.email).toBeNull();
     expect(parsed.website).toBeNull();
   });
+
+  it("adds https:// to a website typed without a scheme", () =>
+    expect(clientSchema.parse({ ...validClient, website: "www.foxway.ee" }).website).toBe("https://www.foxway.ee"));
 });
 
 describe("clientContactSchema", () => {

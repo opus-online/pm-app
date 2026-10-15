@@ -219,9 +219,6 @@ function ResponsibleCell({ assignee }: { assignee: NonNullable<CompanyRow["next_
   );
 }
 
-const MICRO_LABEL =
-  "rounded-sm bg-muted px-1.5 py-px text-[10px] font-medium tracking-wide text-muted-foreground uppercase";
-
 function CompanyCell({ row }: { row: CompanyRow }) {
   return (
     <div className="flex items-center gap-3">
@@ -238,17 +235,7 @@ function CompanyCell({ row }: { row: CompanyRow }) {
         >
           <TruncateTooltip text={row.name} />
         </Link>
-        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
-          <span>{row.reg_code ?? "—"}</span>
-          {row.kind === "prospect" ? (
-            <Tooltip>
-              <TooltipTrigger render={<span className={MICRO_LABEL} />}>Prospect</TooltipTrigger>
-              <TooltipContent>No project or won deal yet</TooltipContent>
-            </Tooltip>
-          ) : (
-            <span className={MICRO_LABEL}>Client</span>
-          )}
-        </div>
+        <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">{row.reg_code ?? "—"}</div>
       </div>
     </div>
   );

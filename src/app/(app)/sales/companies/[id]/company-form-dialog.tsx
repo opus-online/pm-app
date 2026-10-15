@@ -129,7 +129,7 @@ function CompanyFormBody({ company, onDone }: { company: CompanyView; onDone: ()
           />
           <Field form={form} name="phone" label="Phone" type="tel" />
           <Field form={form} name="email" label="Email" type="email" />
-          <Field form={form} name="website" label="Website" type="url" placeholder="https://" className="sm:col-span-2" />
+          <Field form={form} name="website" label="Website" placeholder="www.example.ee" className="sm:col-span-2" />
           <FormField
             control={form.control}
             name="notes"
