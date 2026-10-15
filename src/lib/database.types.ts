@@ -2424,6 +2424,7 @@ export type Database = {
       current_person_id: { Args: never; Returns: string }
       edit_entry: {
         Args: {
+          p_assignee?: string
           p_body: string
           p_contact: string
           p_deal: string

@@ -8,10 +8,11 @@ describe("visibleInTimeline", () => {
   it("'entries' mode keeps done user rows", () => {
     expect(visibleInTimeline({ kind: "call", status: "done" }, "entries")).toBe(true);
   });
-  it("'entries' mode keeps cancelled user rows", () => {
-    expect(visibleInTimeline({ kind: "note", status: "cancelled" }, "entries")).toBe(true);
+  it("cancelled steps are hidden in both modes (user request 2026-10-15)", () => {
+    expect(visibleInTimeline({ kind: "note", status: "cancelled" }, "entries")).toBe(false);
+    expect(visibleInTimeline({ kind: "call", status: "cancelled" }, "all")).toBe(false);
   });
-  it("'all' mode keeps everything, including system", () => {
+  it("'all' mode keeps everything else, including system", () => {
     expect(visibleInTimeline({ kind: "system", status: "done" }, "all")).toBe(true);
     expect(visibleInTimeline({ kind: "call", status: "planned" }, "all")).toBe(true);
   });

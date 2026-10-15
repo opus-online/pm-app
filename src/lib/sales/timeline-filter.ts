@@ -1,8 +1,10 @@
 export type TimelineMode = "entries" | "all";
 
 /** "entries" hides the auto-generated system rows (reassigned/rescheduled notices) so the
- * timeline reads like a log of what a person did; "all" shows everything, system included. */
+ * timeline reads like a log of what a person did; "all" shows those too. Cancelled steps never
+ * show (they stay in the database and the audit log). */
 export function visibleInTimeline(a: { kind: string; status: string }, mode: TimelineMode): boolean {
+  if (a.status === "cancelled") return false;
   if (mode === "all") return true;
   return a.kind !== "system";
 }

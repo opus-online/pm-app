@@ -97,6 +97,8 @@ export const activitySchema = z.object({
   kind: z.enum(ACTIVITY_KINDS),
   body: z.string().trim().min(1, "Write something").max(5000),
   occurred_at: z.iso.datetime({ offset: true }).optional(),
+  /** The Sales person who handled it (default: nobody named -- the timeline shows who logged it). */
+  assignee_id: nullableUuid,
 });
 export const planStepSchema = z.object({
   client_id: z.uuid(),
@@ -147,6 +149,7 @@ export const editEntrySchema = z.object({
   occurred_at: isoDateTime,
   contact_id: nullableUuid,
   deal_id: nullableUuid,
+  assignee_id: nullableUuid,
 });
 export type CompanyInput = z.input<typeof companySchema>;
 export type ContactInput = z.input<typeof contactSchema>;

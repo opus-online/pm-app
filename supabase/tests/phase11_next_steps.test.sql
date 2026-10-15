@@ -27,7 +27,7 @@ select lives_ok($$ insert into public.crm_activities (id, client_id, deal_id, ki
 select throws_ok($$ insert into public.crm_activities (client_id, kind, body, status, due_on, assignee_id)
   values ('ad100000-0000-4000-8000-000000000001','call','x','planned','2026-10-14','ad000000-0000-4000-8000-000000000003') $$, '42501', null, 'cannot assign to a non-sales user');
 select throws_ok($$ insert into public.crm_activities (client_id, kind, body, status, assignee_id)
-  values ('ad100000-0000-4000-8000-000000000001','call','x','done','ad000000-0000-4000-8000-000000000002') $$, '42501', null, 'done row cannot set assignee_id');
+  values ('ad100000-0000-4000-8000-000000000001','call','x','done','ad000000-0000-4000-8000-000000000003') $$, '42501', null, 'done row cannot name a non-sales assignee');
 select lives_ok($$ insert into public.crm_activities (id, client_id, kind, body, status, due_on, assignee_id)
   values ('ad300000-0000-4000-8000-000000000002','ad100000-0000-4000-8000-000000000002','email','Send intro','planned','2026-10-20','ad000000-0000-4000-8000-000000000001') $$, 'step on a company without deals');
 

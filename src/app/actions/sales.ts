@@ -237,7 +237,7 @@ export async function logActivityAction(input: ActivityInput): Promise<Result> {
 
   const parsed = activitySchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid activity." };
-  const { client_id, deal_id, contact_id, kind, body, occurred_at } = parsed.data;
+  const { client_id, deal_id, contact_id, kind, body, occurred_at, assignee_id } = parsed.data;
 
   const supabase = await createClient();
 
@@ -248,7 +248,7 @@ export async function logActivityAction(input: ActivityInput): Promise<Result> {
   // (even the correct one) is unnecessary and risks future drift from the RLS check.
   const { data, error } = await supabase
     .from("crm_activities")
-    .insert({ client_id, deal_id: deal_id ?? null, contact_id: contact_id ?? null, kind, body, occurred_at })
+    .insert({ client_id, deal_id: deal_id ?? null, contact_id: contact_id ?? null, kind, body, occurred_at, assignee_id })
     .select("id")
     .single();
   if (error || !data) return { error: "Save failed. Try again." };
@@ -507,7 +507,7 @@ export async function editEntryAction(input: EditEntryInput): Promise<Result> {
 
   const parsed = editEntrySchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid entry." };
-  const { activity_id, kind, body, occurred_at, contact_id, deal_id } = parsed.data;
+  const { activity_id, kind, body, occurred_at, contact_id, deal_id, assignee_id } = parsed.data;
 
   const supabase = await createClient();
   const { data: activity } = await supabase.from("crm_activities").select("client_id").eq("id", activity_id).single();
@@ -522,6 +522,8 @@ export async function editEntryAction(input: EditEntryInput): Promise<Result> {
     p_occurred_at: occurred_at as never,
     p_contact: contact_id as never,
     p_deal: deal_id as never,
+    // Sent as-is: the dialog always passes the current (or newly picked) assignee.
+    p_assignee: assignee_id as never,
   });
   if (error) return { error: mapRound3RpcError(error, "This entry can't be edited.") };
 

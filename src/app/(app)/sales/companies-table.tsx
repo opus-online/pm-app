@@ -28,7 +28,7 @@ import { STAGE_DOT, STAGE_LABEL } from "./stage";
 import { TruncateTooltip } from "./truncate-tooltip";
 import type { CompanyRow, PipelineContact, SalesOwnerOption } from "./types";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 50;
 
 type SortKey = "company" | "deals" | "offer" | "next_step" | "responsible";
 

@@ -42,8 +42,8 @@ type LeadForm = {
   client_id: string | null;
   company: { name: string; reg_code: string; phone: string; email: string; website: string };
   deal: { title: string; source: DealSource; owner_id: string };
-  /** Optional first step, assigned to the deal owner; sent only when "What to do" is filled. */
-  step: { body: string; due_on: string };
+  /** Optional first step; sent only when "What to do" is filled. */
+  step: { body: string; due_on: string; assignee_id: string };
   contact: { first_name: string; last_name: string; role: string; email: string; phone: string };
 };
 
@@ -62,7 +62,13 @@ function prune(values: LeadForm): NewLeadInput {
     ...(values.deal.title.trim() ? { deal: values.deal } : {}),
     ...(contactFilled ? { contact: values.contact } : {}),
     ...(values.step.body.trim()
-      ? { step: { body: values.step.body, due_on: values.step.due_on, assignee_id: values.deal.owner_id } }
+      ? {
+          step: {
+            body: values.step.body,
+            due_on: values.step.due_on,
+            assignee_id: values.step.assignee_id || values.deal.owner_id,
+          },
+        }
       : {}),
   };
 }
@@ -169,7 +175,7 @@ function NewLeadForm({
       client_id: preselected,
       company: EMPTY_COMPANY,
       deal: { title: "", source: "inbound", owner_id: defaultOwner },
-      step: { body: "", due_on: shiftDayKey(appDayKey(Date.now()), 1) },
+      step: { body: "", due_on: shiftDayKey(appDayKey(Date.now()), 1), assignee_id: defaultOwner },
       contact: EMPTY_CONTACT,
     },
   });
@@ -394,41 +400,21 @@ function NewLeadForm({
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="deal.owner_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Owner</FormLabel>
-                  <Select value={field.value} onValueChange={(v) => field.onChange(v)}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue>
-                        {(v: string) => {
-                          const owner = owners.find((o) => o.id === v);
-                          if (!owner) return "Select an owner";
-                          return <OwnerLabel owner={owner} />;
-                        }}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {owners.map((o) => (
-                        <SelectItem key={o.id} value={o.id}>
-                          <OwnerLabel owner={o} />
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <PersonField form={form} name="deal.owner_id" label="Owner" owners={owners} />
           </div>
         </FormSection>
 
         <FormSection tone="amber" title="Next step">
-          <div className="grid gap-3 sm:grid-cols-[1fr_11rem]">
-            <TextField form={form} name="step.body" label="What to do" placeholder="e.g. Call to agree on a meeting" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextField
+              form={form}
+              name="step.body"
+              label="What to do"
+              placeholder="e.g. Call to agree on a meeting"
+              className="sm:col-span-2"
+            />
             <TextField form={form} name="step.due_on" label="Due date" type="date" />
+            <PersonField form={form} name="step.assignee_id" label="Assignee" owners={owners} />
           </div>
         </FormSection>
 
@@ -523,6 +509,49 @@ function TextField({
         <FormItem className={className}>
           <FormLabel>{label}</FormLabel>
           <FormControl render={<Input type={type} placeholder={placeholder} {...field} />} />
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  );
+}
+
+function PersonField({
+  form,
+  name,
+  label,
+  owners,
+}: {
+  form: ReturnType<typeof useForm<LeadForm>>;
+  name: "deal.owner_id" | "step.assignee_id";
+  label: string;
+  owners: SalesOwnerOption[];
+}) {
+  return (
+    <FormField
+      control={form.control}
+      name={name}
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>{label}</FormLabel>
+          <Select value={field.value} onValueChange={(v) => field.onChange(v)}>
+            <SelectTrigger className="w-full">
+              <SelectValue>
+                {(v: string) => {
+                  const owner = owners.find((o) => o.id === v);
+                  if (!owner) return "Select a person";
+                  return <OwnerLabel owner={owner} />;
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {owners.map((o) => (
+                <SelectItem key={o.id} value={o.id}>
+                  <OwnerLabel owner={o} />
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <FormMessage />
         </FormItem>
       )}

@@ -106,7 +106,6 @@ export function ActivityComposer({
   const selectedDealId = dealOptions.some((d) => d.id === dealId) ? dealId : NONE;
   const validDue = /^\d{4}-\d{2}-\d{2}$/.test(dueOn);
   const canSubmit = body.trim().length > 0 && !isPending && (!planning || (validDue && assigneeId !== ""));
-
   function switchMode(next: Mode) {
     setMode(next);
     if (contactId === NONE) setContactId(soleContact);
@@ -138,7 +137,11 @@ export function ActivityComposer({
       try {
         result = planning
           ? await planStepAction({ ...refs, due_on: dueOn, assignee_id: assigneeId })
-          : await logActivityAction({ ...refs, occurred_at: when ? new Date(when).toISOString() : undefined });
+          : await logActivityAction({
+              ...refs,
+              occurred_at: when ? new Date(when).toISOString() : undefined,
+              assignee_id: assigneeId || null,
+            });
       } catch {
         toast.error(planning ? "Could not plan the step. Try again." : "Could not log the activity. Try again.");
         return;
@@ -211,25 +214,23 @@ export function ActivityComposer({
             className={cn("resize-y", planning ? "min-h-16" : "min-h-20")}
           />
 
-          <div className={cn("grid gap-3 sm:grid-cols-2", planning ? "xl:grid-cols-4" : "xl:grid-cols-3")}>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {planning && (
-              <>
-                <Field id={`${ids}-due`} label="Due date">
-                  <Input
-                    id={`${ids}-due`}
-                    type="date"
-                    required
-                    className="h-7 text-[0.8rem]"
-                    value={dueOn}
-                    onChange={(e) => setDueOn(e.target.value)}
-                    aria-invalid={!validDue || undefined}
-                  />
-                </Field>
-                <Field id={`${ids}-assignee`} label="Assignee">
-                  <PersonSelect id={`${ids}-assignee`} value={assigneeId} onChange={setAssigneeId} people={people} />
-                </Field>
-              </>
+              <Field id={`${ids}-due`} label="Due date">
+                <Input
+                  id={`${ids}-due`}
+                  type="date"
+                  required
+                  className="h-7 text-[0.8rem]"
+                  value={dueOn}
+                  onChange={(e) => setDueOn(e.target.value)}
+                  aria-invalid={!validDue || undefined}
+                />
+              </Field>
             )}
+            <Field id={`${ids}-assignee`} label="Assignee">
+              <PersonSelect id={`${ids}-assignee`} value={assigneeId} onChange={setAssigneeId} people={people} />
+            </Field>
             <Field id={`${ids}-contact`} label="Contact">
               <OptionalSelect
                 id={`${ids}-contact`}

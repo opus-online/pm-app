@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(26);
+select plan(30);
 
 -- Sales round 3: cancelled status, audit columns, update_step/cancel_step/edit_entry RPCs,
 -- and the new prospect rule (prospect = no project and no won deal).
@@ -126,6 +126,14 @@ select is(
   'Talked to Mari, wants a demo|ae000000-0000-4000-8000-000000000002|ae000000-0000-4000-8000-000000000001',
   'edit_entry updates body/edited_by but keeps the original actor');
 
+-- logged entries name a Sales person: edit_entry sets it, and refuses a non-Sales user
+select public.edit_entry('ae300000-0000-4000-8000-000000000009','Talked to Mari, wants a demo','call',null,null,null,'ae000000-0000-4000-8000-000000000001');
+select is((select assignee_id::text from public.crm_activities where id='ae300000-0000-4000-8000-000000000009'),
+  'ae000000-0000-4000-8000-000000000001', 'edit_entry sets the entry''s assignee');
+select throws_ok(
+  $$ select public.edit_entry('ae300000-0000-4000-8000-000000000009','x','call',null,null,null,'ae000000-0000-4000-8000-000000000003') $$,
+  '42501', null, 'edit_entry refuses a non-Sales assignee');
+
 -- 12. edit_entry on a system row -> P0002
 select throws_ok(
   $$ select public.edit_entry('ae300000-0000-4000-8000-00000000000a','x','call',null,null,null) $$,
@@ -159,7 +167,7 @@ select is(has_function_privilege('anon', 'public.update_step(uuid, text, public.
   false, 'anon cannot execute update_step');
 select is(has_function_privilege('anon', 'public.cancel_step(uuid, text)', 'EXECUTE'),
   false, 'anon cannot execute cancel_step');
-select is(has_function_privilege('anon', 'public.edit_entry(uuid, text, public.activity_kind, timestamptz, uuid, uuid)', 'EXECUTE'),
+select is(has_function_privilege('anon', 'public.edit_entry(uuid, text, public.activity_kind, timestamptz, uuid, uuid, uuid)', 'EXECUTE'),
   false, 'anon cannot execute edit_entry');
 
 -- 17. insert crm_activities with edited_by set -> 42501 (audit columns are locked on insert)
@@ -175,6 +183,16 @@ select throws_ok(
   $$ insert into public.crm_activities (client_id, kind, body, status, actor_id, cancelled_at)
      values ('ae100000-0000-4000-8000-000000000001','call','New entry','done','ae000000-0000-4000-8000-000000000001', now()) $$,
   '42501', null, 'insert with cancelled_at set is rejected');
+
+-- logging an entry may name a Sales person, never a non-Sales one
+select lives_ok(
+  $$ insert into public.crm_activities (client_id, kind, body, status, actor_id, assignee_id)
+     values ('ae100000-0000-4000-8000-000000000001','call','Anna called','done','ae000000-0000-4000-8000-000000000001','ae000000-0000-4000-8000-000000000002') $$,
+  'a logged entry can name a Sales assignee');
+select throws_ok(
+  $$ insert into public.crm_activities (client_id, kind, body, status, actor_id, assignee_id)
+     values ('ae100000-0000-4000-8000-000000000001','call','Pete called','done','ae000000-0000-4000-8000-000000000001','ae000000-0000-4000-8000-000000000003') $$,
+  '42501', null, 'a logged entry cannot name a non-Sales assignee');
 reset role;
 -- clear the lingering jwt claims from the block above so the superuser fixture writes below
 -- (profile insert/update) aren't seen as a non-admin edit by protect_profile_columns().

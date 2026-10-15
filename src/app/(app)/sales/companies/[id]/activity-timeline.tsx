@@ -161,7 +161,14 @@ export function ActivityTimeline({
 
       {canManage && (
         <>
-          <EntryEditDialog entry={editing} contacts={contacts} deals={deals} open={editOpen} onOpenChange={setEditOpen} />
+          <EntryEditDialog
+            entry={editing}
+            contacts={contacts}
+            deals={deals}
+            people={people}
+            open={editOpen}
+            onOpenChange={setEditOpen}
+          />
           <MoveToStepsDialog
             entry={moving}
             people={people}
@@ -217,7 +224,8 @@ function TimelineItem({
     ...(closedStep
       ? [a.contact_name]
       : [
-          a.actor?.name ?? null,
+          // Who handled it when someone was named, else who logged it.
+          a.assignee?.name ?? a.actor?.name ?? null,
           <span key="t" className="tabular-nums">{appClockTime(a.occurred_at)}</span>,
           a.contact_name,
         ]),
