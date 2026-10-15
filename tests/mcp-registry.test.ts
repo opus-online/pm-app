@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { FORBIDDEN_NAME_PATTERN, TOOLS } from "@/lib/mcp/registry";
+import { DELETE_TOOL_NAMES, FORBIDDEN_NAME_PATTERN, TOOLS, isForbiddenToolName } from "@/lib/mcp/registry";
 
 // Exact allowlist: adding, renaming or removing a tool must be a deliberate edit here.
 const EXPECTED = [
@@ -9,6 +9,9 @@ const EXPECTED = [
   "sales_overview", "get_company", "my_next_steps",
   "log_activity", "plan_step", "complete_step", "update_step", "cancel_step", "move_entry_to_steps",
   "create_lead", "update_deal", "save_offer",
+  // Sales records + deletes (2026-10-15)
+  "save_company", "save_contact",
+  "delete_contact", "delete_offer", "delete_entry", "delete_deal", "delete_company",
   // Projects (Task 5)
   "post_status_update", "update_project", "log_time",
 ];
@@ -46,9 +49,24 @@ describe("MCP tool registry", () => {
     }
   });
 
-  it("contains no delete/credential/admin/settings tool names", () => {
-    const offending = names.filter((n) => FORBIDDEN_NAME_PATTERN.test(n));
-    expect(offending).toEqual([]);
+  it("contains no delete/credential/admin/settings tool names beyond the Sales delete allowlist", () => {
+    expect(names.filter(isForbiddenToolName)).toEqual([]);
+    expect(names.filter((n) => FORBIDDEN_NAME_PATTERN.test(n)).sort()).toEqual([...DELETE_TOOL_NAMES].sort());
+  });
+
+  it("only Sales records can be deleted", () => {
+    expect([...DELETE_TOOL_NAMES].sort()).toEqual(["delete_company", "delete_contact", "delete_deal", "delete_entry", "delete_offer"]);
+    for (const bad of ["delete_project", "delete_person", "delete_user", "delete_budget_item", "delete_time_entry"]) {
+      expect(isForbiddenToolName(bad)).toBe(true);
+    }
+  });
+
+  it("every delete tool is a write tool that needs an explicit confirm, except log entries", () => {
+    for (const t of TOOLS.filter((t) => DELETE_TOOL_NAMES.includes(t.name))) {
+      expect(t.readOnly).toBe(false);
+      const shape = (t.inputSchema as unknown as { shape: Record<string, unknown> }).shape;
+      if (t.name !== "delete_entry") expect(Object.keys(shape)).toContain("confirm");
+    }
   });
 
   it("forbidden pattern catches the categories it must", () => {

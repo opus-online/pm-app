@@ -213,7 +213,7 @@ export default async function CompanyPage({
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-          <CompanyHeader company={company} canManage={canManage} />
+          <CompanyHeader company={company} canManage={canManage} canDelete={access.canDeleteCompany} />
         </div>
 
         <div className="grid items-start gap-6 lg:grid-cols-[22rem_1fr]">

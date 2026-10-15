@@ -193,5 +193,7 @@ export async function deleteClientAction(clientId: string): Promise<{ error: str
 
   revalidatePath("/clients");
   revalidatePath("/projects/new");
+  // Also deletable from its Sales company page (sales/companies/[id]/delete-company-button.tsx).
+  revalidatePath("/sales");
   return { success: true as const };
 }

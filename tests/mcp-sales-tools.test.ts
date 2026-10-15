@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { TOOLS } from "@/lib/mcp/registry";
 import {
-  NO_MANAGE_SALES, NO_VIEW_SALES, SALES_READ_TOOLS, SALES_WRITE_TOOLS, WRITE_NOTE, lostReasonFor, resolvePersonRef,
+  NO_DELETE_COMPANY, NO_MANAGE_SALES, NO_VIEW_SALES, SALES_READ_TOOLS, SALES_WRITE_TOOLS, WRITE_NOTE, lostReasonFor, resolvePersonRef,
 } from "@/lib/mcp/tools/sales";
 import { ToolError } from "@/lib/mcp/types";
 import {
@@ -103,6 +103,8 @@ describe("sales tool input schemas", () => {
       ["create_lead", { company: { name: "Acme" }, deal: { title: "Site", source: "inbound" }, step: { body: "Call", due_on: "2026-10-12" } }],
       ["update_deal", { deal_id: ID, stage: "lost" }],
       ["save_offer", { deal_id: ID, title: "Offer", amount: 1000 }],
+      ["create_lead", { company: { name: "Acme" } }],
+      ["save_company", { name: "Foxway", website: "www.foxway.ee" }],
     ];
     for (const [name, args] of ok) expect(tool(name).inputSchema.safeParse(args).success, name).toBe(true);
   });
@@ -119,14 +121,24 @@ describe("sales permission gate", () => {
     create_lead: { company: { name: "Acme" }, deal: { title: "X", source: "inbound" } },
     update_deal: { deal_id: ID, title: "X" },
     save_offer: { deal_id: ID, title: "X", amount: 1 },
+    save_company: { name: "Acme" },
+    save_contact: { company_id: ID, first_name: "Mari" },
+    delete_contact: { contact_id: ID, confirm: "Mari Test" },
+    delete_offer: { offer_id: ID, confirm: "v1" },
+    delete_entry: { activity_id: ID },
+    delete_deal: { deal_id: ID, confirm: "Site" },
+    delete_company: { company_id: ID, confirm: "Acme" },
   };
+  // Deleting a whole company is a Clients-level permission, as in the app.
+  const permFor = (name: string) => (name === "delete_company" ? "manage_clients" : "manage_sales");
+  const deniedFor = (name: string) => (name === "delete_company" ? NO_DELETE_COMPANY : NO_MANAGE_SALES);
 
-  it.each(SALES_WRITE_TOOLS.map((t) => t.name))("%s refuses without manage_sales and writes nothing", async (name) => {
+  it.each(SALES_WRITE_TOOLS.map((t) => t.name))("%s refuses without permission and writes nothing", async (name) => {
     const { ctx, rpc, audit } = permissionCtx(false);
     const err = await tool(name).run(writeArgs[name], ctx).catch((e) => e);
     expect(err).toBeInstanceOf(ToolError);
-    expect(err.message).toBe(NO_MANAGE_SALES);
-    expect(rpc).toHaveBeenCalledWith("has_permission", { uid: ME, perm: "manage_sales" });
+    expect(err.message).toBe(deniedFor(name));
+    expect(rpc).toHaveBeenCalledWith("has_permission", { uid: ME, perm: permFor(name) });
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(audit).not.toHaveBeenCalled();
   });
@@ -275,5 +287,44 @@ describe("shared lead/list helpers", () => {
     };
     for (const q of ["nordic", "10123", "pricing", "mari", "nt.ee", "5551"]) expect(matchesCompanyQuery(row, q), q).toBe(true);
     expect(matchesCompanyQuery(row, "acme")).toBe(false);
+  });
+});
+
+describe("sales deletes", () => {
+  /** has_permission = true; the record lookup answers `row`; any delete call is recorded. */
+  function lookupCtx(row: Record<string, unknown> | null) {
+    const audit = vi.fn();
+    const del = vi.fn();
+    const rpc = vi.fn(async () => ({ data: true, error: null }));
+    const from = () => {
+      const b = {
+        select: () => b,
+        eq: () => b,
+        delete: () => { del(); return b; },
+        maybeSingle: () => Promise.resolve({ data: row, error: null }),
+      };
+      return b;
+    };
+    return { ctx: { supabase: { rpc, from }, userId: ME, keyId: KEY, audit } as never, del, audit };
+  }
+
+  it.each([
+    ["delete_company", { company_id: ID, confirm: "Other OÜ" }, { name: "TEST Testfirma OÜ" }],
+    ["delete_deal", { deal_id: ID, confirm: "Other deal" }, { client_id: ID, title: "TEST – Website redesign inquiry" }],
+    ["delete_contact", { contact_id: ID, confirm: "Jaan" }, { client_id: ID, name: "Mari Test" }],
+    ["delete_offer", { offer_id: ID, confirm: "v2" }, { deal_id: ID, title: "v1", deals: { client_id: ID } }],
+  ] as const)("%s refuses when confirm doesn't match the record's name", async (name, args, row) => {
+    const { ctx, del, audit } = lookupCtx(row);
+    await expect(tool(name).run(args, ctx)).rejects.toThrow(/Check with the user/);
+    expect(del).not.toHaveBeenCalled();
+    expect(audit).not.toHaveBeenCalled();
+  });
+
+  it("delete_entry refuses planned steps and system entries", async () => {
+    for (const row of [{ client_id: ID, kind: "call", status: "planned" }, { client_id: ID, kind: "system", status: "done" }]) {
+      const { ctx, del } = lookupCtx(row);
+      await expect(tool("delete_entry").run({ activity_id: ID }, ctx)).rejects.toBeInstanceOf(ToolError);
+      expect(del).not.toHaveBeenCalled();
+    }
   });
 });

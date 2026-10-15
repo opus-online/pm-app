@@ -7,6 +7,7 @@ import { NEUTRAL_ACTION_CLASS } from "@/lib/action-styles";
 import { initials } from "../../../projects/types";
 import type { CompanyView } from "../../types";
 import { CompanyFormDialog } from "./company-form-dialog";
+import { DeleteCompanyButton } from "./delete-company-button";
 
 const LINK = "transition-colors hover:text-foreground hover:underline underline-offset-3";
 
@@ -15,7 +16,15 @@ function displayHost(url: string) {
   return url.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
 }
 
-export function CompanyHeader({ company, canManage }: { company: CompanyView; canManage: boolean }) {
+export function CompanyHeader({
+  company,
+  canManage,
+  canDelete,
+}: {
+  company: CompanyView;
+  canManage: boolean;
+  canDelete: boolean;
+}) {
   // Only what's known -- an all-dash line for a fresh prospect reads as broken, not as aligned.
   const meta: ReactNode[] = [];
   if (company.reg_code) meta.push(<span className="tabular-nums">{company.reg_code}</span>);
@@ -88,6 +97,7 @@ export function CompanyHeader({ company, canManage }: { company: CompanyView; ca
             <ArrowUpRightIcon />
           </Button>
         )}
+        {canDelete && <DeleteCompanyButton id={company.id} name={company.name} />}
         {canManage && <CompanyFormDialog company={company} />}
       </div>
     </div>

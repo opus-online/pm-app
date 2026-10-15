@@ -11,9 +11,11 @@ export const getSalesAccess = cache(async () => {
   const current = await getCurrentUser();
   if (!current) return null;
   const supabase = await createClient();
-  const [{ data: canView }, { data: canManage }] = await Promise.all([
+  const [{ data: canView }, { data: canManage }, { data: canDeleteCompany }] = await Promise.all([
     supabase.rpc("has_permission", { uid: current.user.id, perm: "view_sales" }),
     supabase.rpc("has_permission", { uid: current.user.id, perm: "manage_sales" }),
+    // Deleting a whole company is a Clients-level right (clients delete RLS), as on /clients.
+    supabase.rpc("has_permission", { uid: current.user.id, perm: "manage_clients" }),
   ]);
-  return { current, canView: canView === true, canManage: canManage === true };
+  return { current, canView: canView === true, canManage: canManage === true, canDeleteCompany: canDeleteCompany === true };
 });

@@ -31,7 +31,9 @@ import { compareDueDates, daysUntil } from "@/lib/sales/urgency";
 import {
   activitySchema,
   cancelStepSchema,
+  companySchema,
   completeStepSchema,
+  contactSchema,
   convertEntrySchema,
   dealUpdateSchema,
   newLeadSchema,
@@ -694,7 +696,7 @@ const moveEntryToSteps = defineTool({
 const createLead = defineTool({
   name: "create_lead",
   title: "Create lead",
-  description: `${WRITE_NOTE} Creates a deal for an existing company (company_id) or a new company (company.name), optionally with a first contact and a first next step. Deal owner defaults to you; the step's assignee defaults to the owner.`,
+  description: `${WRITE_NOTE} Creates a deal for an existing company (company_id), or a new company (company.name) with or without a deal, optionally with a first contact and a first next step. Deal owner defaults to you; the step's assignee defaults to the owner.`,
   inputSchema: z.object({
     company_id: uuid("company_id").optional(),
     company: z
@@ -708,11 +710,14 @@ const createLead = defineTool({
       })
       .optional()
       .describe("New company -- only when company_id is not given"),
-    deal: z.object({
-      title: z.string().trim().min(1).max(200),
-      source: z.enum(DEAL_SOURCES),
-      owner: personRef.optional(),
-    }),
+    deal: z
+      .object({
+        title: z.string().trim().min(1).max(200),
+        source: z.enum(DEAL_SOURCES),
+        owner: personRef.optional(),
+      })
+      .optional()
+      .describe("Optional for a new company (then only the company is created); required with company_id"),
     contact: z
       .object({
         first_name: z.string().trim().min(1).max(100),
@@ -731,14 +736,15 @@ const createLead = defineTool({
     await requireSales(ctx, "manage_sales");
     if (!input.company_id && !input.company) throw new ToolError("Pass company_id for an existing company, or company.name for a new one.");
     const cache: { people?: SalesPerson[] } = {};
-    const owner = await resolvePerson(ctx, input.deal.owner ?? "me", cache);
+    // The owner also defaults the step's assignee, so it resolves even without a deal.
+    const owner = await resolvePerson(ctx, input.deal?.owner ?? "me", cache);
     const owner_id = owner.id;
     // Unset step assignee -> prepareLeadInput defaults it to the deal owner (as in the app).
     const stepAssignee = input.step?.assignee ? await resolvePerson(ctx, input.step.assignee, cache) : null;
     const raw: NewLeadInput = prepareLeadInput({
       client_id: input.company_id ?? null,
       company: input.company,
-      deal: { title: input.deal.title, source: input.deal.source, owner_id },
+      deal: input.deal ? { title: input.deal.title, source: input.deal.source, owner_id } : undefined,
       contact: input.contact,
       step: input.step ? { body: input.step.body, due_on: input.step.due_on, kind: input.step.kind ?? null, assignee_id: stepAssignee?.id ?? null } : undefined,
     });
@@ -754,22 +760,26 @@ const createLead = defineTool({
       // The SQL function accepts a null p_client_id (new company path).
       p_client_id: client_id as never,
       p_company: (company ?? {}) as never,
-      p_deal: deal as never,
+      p_deal: (deal ?? null) as never,
       p_contact: (contact?.first_name ? contact : null) as never,
       p_step: (step?.body ? step : null) as never,
     });
     if (error) throw new ToolError(mapCreateLeadError(error));
-    const { client_id: clientId, deal_id: dealId } = data as { client_id: string; deal_id: string };
-    await ctx.audit({ action: "deal.created", resourceType: "deal", resourceId: dealId, metadata: { client_id: clientId } });
+    const { client_id: clientId, deal_id: dealId } = data as { client_id: string; deal_id: string | null };
+    if (dealId) {
+      await ctx.audit({ action: "deal.created", resourceType: "deal", resourceId: dealId, metadata: { client_id: clientId } });
+    } else {
+      await ctx.audit({ action: "client.created", resourceType: "client", resourceId: clientId, metadata: { via: "sales" } });
+    }
     revalidate(clientId, { clients: true });
     const leadStep = step?.body ? step : null;
     return toText(
       compact({
-        result: "Lead created",
+        result: dealId ? "Lead created" : "Company created",
         company_id: clientId,
         deal_id: dealId,
-        owner: owner.name,
-        owner_id,
+        owner: dealId ? owner.name : null,
+        owner_id: dealId ? owner_id : null,
         step: leadStep
           ? compact({ due: fmtDate(leadStep.due_on), assignee: await personName(ctx, leadStep.assignee_id, cache), assignee_id: leadStep.assignee_id })
           : null,
@@ -903,6 +913,233 @@ const saveOffer = defineTool({
   },
 });
 
+// ---------------------------------------------------------------------------------------------
+// Companies and contacts, plus deletes. Mirrors saveCompanyAction / saveContactAction / the
+// delete*Action family in src/app/actions/sales.ts. Every delete (except a log entry) takes the
+// record's exact name as `confirm`: a mistyped or hallucinated id then fails instead of deleting
+// the wrong thing. Only Sales records can be deleted -- see DELETE_TOOL_NAMES in the registry.
+
+const sameName = (a: string | null | undefined, b: string) =>
+  (a ?? "").trim().toLowerCase() === b.trim().toLowerCase();
+
+function requireConfirm(actual: string | null | undefined, confirm: string, what: string): void {
+  if (!sameName(actual, confirm)) {
+    throw new ToolError(`The ${what} is called "${actual ?? ""}", not "${confirm}". Check with the user which one to delete.`);
+  }
+}
+
+const confirmField = (what: string) =>
+  z.string().trim().min(1).max(300).describe(`The ${what}'s exact current name, as a safety check`);
+
+const saveCompany = defineTool({
+  name: "save_company",
+  title: "Save company",
+  description: `${WRITE_NOTE} Creates a Sales company (no deal needed), or updates one (pass company_id; only the fields you pass change). A website without http(s):// gets https:// added.`,
+  inputSchema: z.object({
+    company_id: uuid("company_id").optional(),
+    name: z.string().trim().min(1).max(200).optional().describe("Required for a new company"),
+    reg_code: nullableText(40),
+    phone: nullableText(60),
+    email: nullableText(320),
+    website: nullableText(2000),
+    notes: nullableText(5000),
+  }),
+  readOnly: false,
+  handler: async (input, ctx) => {
+    await requireSales(ctx, "manage_sales");
+    const { company_id, ...fields } = input;
+    let base: Record<string, unknown> = {};
+    if (company_id) {
+      const { data: cur, error } = await ctx.supabase
+        .from("clients")
+        .select("name, reg_code, phone, email, website, notes")
+        .eq("id", company_id)
+        .maybeSingle();
+      check(error, "the company");
+      if (!cur) notFound("Company");
+      base = cur;
+    } else if (fields.name === undefined) {
+      throw new ToolError("Name is required for a new company.");
+    }
+    const provided = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+    const values = parseWith(companySchema, { ...base, ...provided });
+    const dup = await existingByRegCode(ctx.supabase, values.reg_code, company_id);
+    if (dup) throw new ToolError(`A company with this registry code already exists: ${dup.name} (id ${dup.id}).`);
+    const write = company_id
+      ? ctx.supabase.from("clients").update(values).eq("id", company_id)
+      : ctx.supabase.from("clients").insert(values);
+    const { data, error } = await write.select("id").maybeSingle();
+    if (error || !data) {
+      if (error?.code === "23505") throw new ToolError("A company with this registry code already exists.");
+      if (!error) notFound("Company");
+      console.error("mcp save_company failed:", error.code, error.message);
+      throw new ToolError("Save failed. Try again.");
+    }
+    await ctx.audit({ action: "company.saved", resourceType: "client", resourceId: data.id, metadata: { name: values.name } });
+    revalidate(data.id, { clients: true });
+    return toText(compact({ result: company_id ? "Company updated" : "Company created", company_id: data.id, name: values.name, website: values.website, url: companyUrl(data.id) }));
+  },
+});
+
+const saveContact = defineTool({
+  name: "save_contact",
+  title: "Save contact",
+  description: `${WRITE_NOTE} Adds a contact person to a Sales company, or updates one (pass contact_id; only the fields you pass change).`,
+  inputSchema: z.object({
+    company_id: uuid("company_id"),
+    contact_id: uuid("contact_id").optional(),
+    first_name: z.string().trim().min(1).max(100).optional().describe("Required for a new contact"),
+    last_name: nullableText(100),
+    gender: z.enum(["female", "male", "other"]).nullable().optional(),
+    email: nullableText(320),
+    phone: nullableText(60),
+    role: nullableText(120).describe("Position, e.g. Marketing Manager"),
+    description: nullableText(2000),
+  }),
+  readOnly: false,
+  handler: async (input, ctx) => {
+    await requireSales(ctx, "manage_sales");
+    const { company_id, contact_id, ...fields } = input;
+    let base: Record<string, unknown> = {};
+    if (contact_id) {
+      const { data: cur, error } = await ctx.supabase
+        .from("client_contacts")
+        .select("first_name, last_name, gender, email, phone, role, description")
+        .eq("id", contact_id)
+        .eq("client_id", company_id)
+        .maybeSingle();
+      check(error, "the contact");
+      if (!cur) notFound("Contact on that company");
+      base = cur;
+    } else if (fields.first_name === undefined) {
+      throw new ToolError("First name is required for a new contact.");
+    }
+    const provided = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+    const values = parseWith(contactSchema, { ...base, ...provided });
+    // Scoped by company too, so a contact_id of another company is never re-parented (as in the app).
+    const write = contact_id
+      ? ctx.supabase.from("client_contacts").update({ name: "", ...values }).eq("id", contact_id).eq("client_id", company_id)
+      : ctx.supabase.from("client_contacts").insert({ client_id: company_id, name: "", ...values });
+    const { data, error } = await write.select("id").maybeSingle();
+    if (error || !data) {
+      if (!error || error.code === "23503") notFound("Company");
+      console.error("mcp save_contact failed:", error.code, error.message);
+      throw new ToolError("Save failed. Try again.");
+    }
+    await ctx.audit({ action: "company.saved", resourceType: "client_contact", resourceId: data.id, metadata: { client_id: company_id, contact_id: data.id } });
+    revalidate(company_id, { clients: true });
+    return toText(compact({ result: contact_id ? "Contact updated" : "Contact added", contact_id: data.id, name: [values.first_name, values.last_name].filter(Boolean).join(" "), url: companyUrl(company_id) }));
+  },
+});
+
+const deleteContact = defineTool({
+  name: "delete_contact",
+  title: "Delete contact",
+  description: `${WRITE_NOTE} Permanently deletes a contact person from a Sales company. Their past log entries stay, without the contact.`,
+  inputSchema: z.object({ contact_id: uuid("contact_id"), confirm: confirmField("contact") }),
+  readOnly: false,
+  handler: async (input, ctx) => {
+    await requireSales(ctx, "manage_sales");
+    const { data: cur, error } = await ctx.supabase.from("client_contacts").select("client_id, name").eq("id", input.contact_id).maybeSingle();
+    check(error, "the contact");
+    if (!cur) notFound("Contact");
+    requireConfirm(cur.name, input.confirm, "contact");
+    const { data: gone, error: delError } = await ctx.supabase.from("client_contacts").delete().eq("id", input.contact_id).select("id");
+    if (delError || !gone?.length) throw new ToolError("Delete failed. Try again.");
+    await ctx.audit({ action: "company.saved", resourceType: "client_contact", resourceId: input.contact_id, metadata: { client_id: cur.client_id, deleted: true, name: cur.name } });
+    revalidate(cur.client_id, { clients: true });
+    return toText({ result: "Contact deleted", name: cur.name, url: companyUrl(cur.client_id) });
+  },
+});
+
+const deleteOffer = defineTool({
+  name: "delete_offer",
+  title: "Delete offer",
+  description: `${WRITE_NOTE} Permanently deletes an offer from a deal.`,
+  inputSchema: z.object({ offer_id: uuid("offer_id"), confirm: confirmField("offer").describe("The offer's exact current title, as a safety check") }),
+  readOnly: false,
+  handler: async (input, ctx) => {
+    await requireSales(ctx, "manage_sales");
+    const { data: cur, error } = await ctx.supabase.from("offers").select("deal_id, title, deals(client_id)").eq("id", input.offer_id).maybeSingle();
+    check(error, "the offer");
+    if (!cur) notFound("Offer");
+    requireConfirm(cur.title, input.confirm, "offer");
+    const { data: gone, error: delError } = await ctx.supabase.from("offers").delete().eq("id", input.offer_id).select("id");
+    if (delError || !gone?.length) throw new ToolError("Delete failed. Try again.");
+    const clientId = cur.deals?.client_id ?? null;
+    await ctx.audit({ action: "offer.deleted", resourceType: "offer", resourceId: input.offer_id, metadata: { deal_id: cur.deal_id, title: cur.title } });
+    revalidate(clientId);
+    return toText(compact({ result: "Offer deleted", title: cur.title, url: clientId ? companyUrl(clientId, cur.deal_id) : null }));
+  },
+});
+
+const deleteEntry = defineTool({
+  name: "delete_entry",
+  title: "Delete log entry",
+  description: `${WRITE_NOTE} Permanently deletes a logged history entry (call, email, meeting or note that already happened). Planned next steps are cancelled with cancel_step instead; automatic system entries can't be deleted.`,
+  inputSchema: z.object({ activity_id: uuid("activity_id") }),
+  readOnly: false,
+  handler: async (input, ctx) => {
+    await requireSales(ctx, "manage_sales");
+    const { data: cur, error } = await ctx.supabase.from("crm_activities").select("client_id, kind, status, body").eq("id", input.activity_id).maybeSingle();
+    check(error, "the entry");
+    if (!cur) notFound("Entry");
+    if (cur.kind === "system") throw new ToolError("Automatic system entries can't be deleted.");
+    if (cur.status !== "done") throw new ToolError("That's a planned next step, not a logged entry. Use cancel_step to cancel it.");
+    const { data: gone, error: delError } = await ctx.supabase.from("crm_activities").delete().eq("id", input.activity_id).select("id");
+    if (delError || !gone?.length) throw new ToolError("Delete failed. Try again.");
+    // The DB trigger audits the deleted text too; this row records that it came through the AI.
+    await ctx.audit({ action: "company.saved", resourceType: "crm_activity", resourceId: input.activity_id, metadata: { client_id: cur.client_id, deleted: true } });
+    revalidate(cur.client_id);
+    return toText({ result: "Entry deleted", url: companyUrl(cur.client_id) });
+  },
+});
+
+const deleteDeal = defineTool({
+  name: "delete_deal",
+  title: "Delete deal",
+  description: `${WRITE_NOTE} Permanently deletes a deal with its offers. Its log entries stay on the company. Prefer update_deal to mark a deal lost; delete only test or mistaken deals.`,
+  inputSchema: z.object({ deal_id: uuid("deal_id"), confirm: confirmField("deal").describe("The deal's exact current title, as a safety check") }),
+  readOnly: false,
+  handler: async (input, ctx) => {
+    await requireSales(ctx, "manage_sales");
+    const { data: cur, error } = await ctx.supabase.from("deals").select("client_id, title").eq("id", input.deal_id).maybeSingle();
+    check(error, "the deal");
+    if (!cur) notFound("Deal");
+    requireConfirm(cur.title, input.confirm, "deal");
+    const { data: gone, error: delError } = await ctx.supabase.from("deals").delete().eq("id", input.deal_id).select("id");
+    if (delError || !gone?.length) throw new ToolError("Delete failed. Try again.");
+    await ctx.audit({ action: "deal.deleted", resourceType: "deal", resourceId: input.deal_id, metadata: { client_id: cur.client_id, title: cur.title } });
+    revalidate(cur.client_id);
+    return toText({ result: "Deal deleted", title: cur.title, url: companyUrl(cur.client_id) });
+  },
+});
+
+export const NO_DELETE_COMPANY = "Only users who can manage clients can delete companies. Ask an admin.";
+
+const deleteCompany = defineTool({
+  name: "delete_company",
+  title: "Delete company",
+  description: `${WRITE_NOTE} Permanently deletes a Sales company together with ALL its deals, offers, contacts, next steps and log entries. Refused while the company has projects. Tell the user exactly what will be lost before asking for confirmation.`,
+  inputSchema: z.object({ company_id: uuid("company_id"), confirm: confirmField("company") }),
+  readOnly: false,
+  handler: async (input, ctx) => {
+    const { data: allowed, error: permError } = await ctx.supabase.rpc("has_permission", { uid: ctx.userId, perm: "manage_clients" });
+    if (permError) throw new ToolError("Could not check your access. Try again.");
+    if (allowed !== true) throw new ToolError(NO_DELETE_COMPANY);
+    const { data: cur, error } = await ctx.supabase.from("clients").select("name").eq("id", input.company_id).maybeSingle();
+    check(error, "the company");
+    if (!cur) notFound("Company");
+    requireConfirm(cur.name, input.confirm, "company");
+    const { data: gone, error: delError } = await ctx.supabase.from("clients").delete().eq("id", input.company_id).select("id");
+    if (delError?.code === "23503") throw new ToolError("This company has projects. Reassign or archive them in the app first.");
+    if (delError || !gone?.length) throw new ToolError("Delete failed. Try again.");
+    await ctx.audit({ action: "client.deleted", resourceType: "client", resourceId: input.company_id, metadata: { name: cur.name } });
+    revalidate(null, { clients: true });
+    return toText({ result: "Company deleted", name: cur.name, url: appUrl("/sales") });
+  },
+});
+
 export const SALES_READ_TOOLS: ToolDef[] = [salesOverview, getCompany, myNextSteps];
 export const SALES_WRITE_TOOLS: ToolDef[] = [
   logActivity,
@@ -914,5 +1151,12 @@ export const SALES_WRITE_TOOLS: ToolDef[] = [
   createLead,
   updateDeal,
   saveOffer,
+  saveCompany,
+  saveContact,
+  deleteContact,
+  deleteOffer,
+  deleteEntry,
+  deleteDeal,
+  deleteCompany,
 ];
 export const SALES_TOOLS: ToolDef[] = [...SALES_READ_TOOLS, ...SALES_WRITE_TOOLS];

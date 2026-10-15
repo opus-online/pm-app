@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createUserScopedClient } from "@/lib/mcp/user-client";
 import { oauthIdentity, type KeyResolver, type McpAuth, type OAuthResolver } from "@/lib/mcp/auth";
 import { mcpInstructions } from "@/lib/mcp/instructions";
-import { FORBIDDEN_NAME_PATTERN, toolsForKey } from "@/lib/mcp/registry";
+import { isForbiddenToolName, toolsForKey } from "@/lib/mcp/registry";
 import { runTool } from "@/lib/mcp/run-tool";
 import type { ToolAuditEntry, ToolContext } from "@/lib/mcp/types";
 import { writeAudit } from "@/lib/audit";
@@ -106,7 +106,7 @@ export async function buildMcpHandler(auth: McpAuth): Promise<(req: Request) => 
       for (const tool of toolsForKey(auth.canWrite)) {
         // Defence in depth: the registry test is the primary guard; refuse to even expose a
         // forbidden-looking tool if one ever slips in.
-        if (FORBIDDEN_NAME_PATTERN.test(tool.name)) {
+        if (isForbiddenToolName(tool.name)) {
           throw new Error(`Refusing to register forbidden MCP tool name: ${tool.name}`);
         }
         server.registerTool(
