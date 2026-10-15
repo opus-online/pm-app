@@ -30,6 +30,16 @@ export default async function LoginPage({
             </AlertDescription>
           </Alert>
         )}
+        {error === "link_invalid" && (
+          <Alert variant="destructive">
+            <AlertDescription>
+              That reset link has expired or was already used.{" "}
+              <Link href="/forgot-password" className="underline underline-offset-4">
+                Send a new one
+              </Link>
+            </AlertDescription>
+          </Alert>
+        )}
         {error === "oauth_failed" && (
           <Alert variant="destructive">
             <AlertDescription>Microsoft sign-in failed. Try again.</AlertDescription>

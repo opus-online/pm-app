@@ -10,6 +10,7 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { toMcpConnectionRows, toMcpKeyRows } from "@/lib/mcp/key-display";
 import { ManagedListsCard, type ManagedOption } from "./managed-lists-card";
 import { AiAssistantCard } from "./ai-assistant-card";
+import { ChangePasswordCard } from "./change-password-card";
 
 export default async function SettingsPage() {
   const current = await requireActiveUser();
@@ -69,6 +70,8 @@ export default async function SettingsPage() {
           <ThemeToggle />
         </CardContent>
       </Card>
+
+      <ChangePasswordCard />
 
       <AiAssistantCard
         keys={toMcpKeyRows(mcpKeys ?? [])}

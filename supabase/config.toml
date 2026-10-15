@@ -248,6 +248,12 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
+# Password reset: a token link to /auth/confirm (works in any browser, also when an admin sends
+# it). The hosted project needs the same template: Dashboard → Authentication → Emails → Reset password.
+[auth.email.template.recovery]
+subject = "Reset your PM app password"
+content_path = "./supabase/templates/recovery.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"

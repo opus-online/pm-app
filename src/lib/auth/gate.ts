@@ -24,7 +24,7 @@ export function safeNextPath(next: string | null | undefined): string | null {
   return `${url.pathname}${url.search}`;
 }
 
-const PUBLIC_PREFIXES = ["/login", "/signup", "/auth"];
+const PUBLIC_PREFIXES = ["/login", "/signup", "/forgot-password", "/auth"];
 
 const OAUTH_RESOURCE_METADATA = "/.well-known/oauth-protected-resource";
 

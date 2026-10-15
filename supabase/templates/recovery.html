@@ -1,0 +1,4 @@
+<h2>Reset your PM app password</h2>
+<p>Someone asked to reset the password for {{ .Email }}. If that was you, set a new one here:</p>
+<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery">Set a new password</a></p>
+<p>The link works once and expires in an hour. If you didn't ask for this, you can ignore this email.</p>

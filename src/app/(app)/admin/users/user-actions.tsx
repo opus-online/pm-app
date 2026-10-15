@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { adminSignOutUserAction, setUserStatusAction } from "@/app/actions/admin";
+import { adminSendPasswordResetAction } from "@/app/actions/password";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -23,6 +25,15 @@ export function UserActions({
     startTransition(async () => {
       const result = await adminSignOutUserAction(userId);
       if ("error" in result) setError(result.error);
+    });
+  }
+
+  function onSendReset() {
+    setError(null);
+    startTransition(async () => {
+      const result = await adminSendPasswordResetAction(userId);
+      if ("error" in result) setError(result.error);
+      else toast.success("Password reset email sent");
     });
   }
 
@@ -48,6 +59,7 @@ export function UserActions({
           }
         />
         <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={onSendReset}>Send password reset</DropdownMenuItem>
           <DropdownMenuItem onClick={onSignOut}>
             Log out from all devices
           </DropdownMenuItem>
